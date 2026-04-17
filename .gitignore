@@ -1,0 +1,29 @@
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# Variables (실제 값) — 예제 파일은 커밋 허용
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+# AWS / 자격 증명
+*.pem
+*.key
+credentials
+.aws/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Claude Code
+.claude/
