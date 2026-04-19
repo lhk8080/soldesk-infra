@@ -2,6 +2,14 @@ output "cloudfront_domain" {
   value = module.cloudfront.cloudfront_domain
 }
 
+output "cloudfront_distribution_id" {
+  value = module.cloudfront.cloudfront_id
+}
+
+output "frontend_bucket" {
+  value = module.s3.frontend_bucket_id
+}
+
 output "cognito_user_pool_id" {
   value = module.cognito.user_pool_id
 }

@@ -27,3 +27,6 @@ Thumbs.db
 
 # Claude Code
 .claude/
+
+# Lambda 빌드 아티팩트 (archive_file 이 자동 생성)
+terraform/modules/*/*.zip

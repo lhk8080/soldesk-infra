@@ -7,8 +7,8 @@
 #   3. Integration request_parameters = 검증된 email을 x-user-email 헤더로 매핑
 #      → 백엔드는 기존 request.headers.get("x-user-email") 코드 그대로 사용
 #      → 헤더 위조 차단 (API GW가 인증된 토큰의 claim만 헤더로 주입)
-#   4. 첫 apply 시 alb_listener_arn=""이면 Integration/Route 생성 안 함 (chicken-and-egg)
-#      두 번째 apply 시 setup-all.sh가 listener ARN을 tfvars에 박은 뒤 자동 생성
+#   4. ALB는 ALB Ingress Controller가 k8s Ingress를 보고 생성 → 태그로 lookup
+#      (과거: setup-all.sh가 listener ARN을 tfvars에 박는 2-apply 구조 → 제거됨)
 
 resource "aws_apigatewayv2_api" "main" {
   name          = "ticketing-http-api"
@@ -71,17 +71,69 @@ resource "aws_apigatewayv2_vpc_link" "main" {
   tags = { Name = "ticketing-vpc-link", Environment = var.env }
 }
 
+# ── ALB Ingress가 만든 ALB lookup (태그 기반) ──────────────────────
+# ALB Ingress Controller는 아래 태그를 자동으로 붙인다:
+#   elbv2.k8s.aws/cluster = <cluster-name>
+#   ingress.k8s.aws/stack = <namespace>/<ingress-name>
+# Ingress는 ArgoCD 동기화가 끝난 뒤에 생성되므로 이 data는 null_resource.wait_for_alb
+# 이후에만 resolve된다 (depends_on).
+data "aws_lb" "ingress" {
+  tags = {
+    "elbv2.k8s.aws/cluster" = var.cluster_name
+    "ingress.k8s.aws/stack" = var.ingress_stack_tag
+  }
+
+  depends_on = [null_resource.wait_for_alb]
+}
+
+data "aws_lb_listener" "ingress" {
+  load_balancer_arn = data.aws_lb.ingress.arn
+  port              = 80
+}
+
+# ── ALB 등장 대기 ──────────────────────────────────────────────────
+# ArgoCD가 ticketing-ingress를 동기화하면 ALB Controller가 ALB를 프로비저닝한다.
+# 프로비저닝 완료까지 aws cli로 폴링.
+resource "null_resource" "wait_for_alb" {
+  triggers = {
+    cluster = var.cluster_name
+    stack   = var.ingress_stack_tag
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      echo "=== ALB 등장 대기 (cluster=${var.cluster_name}, stack=${var.ingress_stack_tag}) ==="
+      for i in $(seq 1 60); do
+        ARN=$(aws elbv2 describe-load-balancers --region ${var.aws_region} \
+          --query "LoadBalancers[?contains(LoadBalancerName, \`k8s-\`)].LoadBalancerArn" \
+          --output text 2>/dev/null | tr '\t' '\n' | while read -r arn; do
+            [ -z "$arn" ] && continue
+            TAGS=$(aws elbv2 describe-tags --region ${var.aws_region} --resource-arns "$arn" \
+              --query 'TagDescriptions[0].Tags' --output json 2>/dev/null)
+            echo "$TAGS" | grep -q "\"${var.cluster_name}\"" && \
+              echo "$TAGS" | grep -q "\"${var.ingress_stack_tag}\"" && echo "$arn" && break
+          done)
+        if [ -n "$ARN" ]; then
+          echo "ALB ready: $ARN"
+          exit 0
+        fi
+        echo "  [$i/60] ALB 대기 중..."
+        sleep 10
+      done
+      echo "ERROR: ALB가 10분 내에 프로비저닝되지 않음"
+      exit 1
+    EOT
+  }
+}
+
 # ── Integration: HTTP_PROXY → Internal ALB Listener ────────────────
-# alb_listener_arn이 비어있으면 (첫 apply) Integration 생성 안 함
 # request_parameters로 검증된 사용자 email을 x-user-email 헤더에 강제 주입
 # overwrite:로 시작하면 클라이언트가 보낸 같은 헤더를 덮어씀 → 위조 불가
 resource "aws_apigatewayv2_integration" "alb" {
-  count = var.alb_listener_arn != "" ? 1 : 0
-
   api_id             = aws_apigatewayv2_api.main.id
   integration_type   = "HTTP_PROXY"
   integration_method = "ANY"
-  integration_uri    = var.alb_listener_arn
+  integration_uri    = data.aws_lb_listener.ingress.arn
   connection_type    = "VPC_LINK"
   connection_id      = aws_apigatewayv2_vpc_link.main.id
 
@@ -99,13 +151,13 @@ resource "aws_apigatewayv2_integration" "alb" {
 # ── 인증 필요한 routes (JWT Authorizer 적용) ──────────────────────
 # /api/* 아래 모든 메서드 → Cognito 토큰 검증 후에만 통과
 resource "aws_apigatewayv2_route" "api_authenticated" {
-  for_each = var.alb_listener_arn != "" ? toset([
+  for_each = toset([
     "ANY /api/{proxy+}",
-  ]) : toset([])
+  ])
 
   api_id             = aws_apigatewayv2_api.main.id
   route_key          = each.value
-  target             = "integrations/${aws_apigatewayv2_integration.alb[0].id}"
+  target             = "integrations/${aws_apigatewayv2_integration.alb.id}"
   authorization_type = "JWT"
   authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
 }
@@ -114,7 +166,7 @@ resource "aws_apigatewayv2_route" "api_authenticated" {
 # Prometheus가 외부에서 scrape할 수 있도록, /health도 ALB healthcheck용
 # 이벤트/좌석 조회는 공개 정보이므로 비로그인도 둘러볼 수 있게 인증 면제
 resource "aws_apigatewayv2_route" "api_public" {
-  for_each = var.alb_listener_arn != "" ? toset([
+  for_each = toset([
     "GET /health",
     "GET /event-metrics",
     "GET /reserv-metrics",
@@ -140,11 +192,11 @@ resource "aws_apigatewayv2_route" "api_public" {
     "GET /api/read/booking/{proxy+}",
     # CORS preflight
     "OPTIONS /api/{proxy+}",
-  ]) : toset([])
+  ])
 
   api_id    = aws_apigatewayv2_api.main.id
   route_key = each.value
-  target    = "integrations/${aws_apigatewayv2_integration.alb[0].id}"
+  target    = "integrations/${aws_apigatewayv2_integration.alb.id}"
 }
 
 # ── Default Stage with auto-deploy ─────────────────────────────────

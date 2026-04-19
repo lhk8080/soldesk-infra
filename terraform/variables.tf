@@ -34,12 +34,6 @@ variable "eks_cluster_name" {
   default     = "ticketing-eks"
 }
 
-variable "alb_listener_arn" {
-  description = "Internal ALB의 HTTP listener ARN. ALB Ingress Controller가 생성한 후 setup-all.sh가 자동으로 tfvars에 박는다. API Gateway VPC Link Integration의 target."
-  type        = string
-  default     = ""
-}
-
 # cognito <-> cloudfront <-> api_gateway 순환 참조를 끊기 위해 root-level 변수로 관리.
 # 첫 apply: 빈 문자열 → cognito는 http://localhost placeholder URL 사용
 # setup-all.sh가 첫 apply 후 cloudfront_domain을 tfvars에 박고 재apply하면
@@ -49,6 +43,9 @@ variable "frontend_callback_domain" {
   type        = string
   default     = ""
 }
+
+# ArgoCD Application(루트 App) 등록은 Terraform 밖에서 kubectl apply 로 처리.
+# soldesk-k8s/argocd/application-prod.yaml 을 참고.
 
 variable "cognito_domain_prefix" {
   description = "Cognito 호스티드 UI 도메인 접두사 (전역 유일)"

@@ -17,20 +17,9 @@ resource "aws_ecr_repository" "worker_svc" {
   tags = { Name = "ecr-worker-svc", Environment = var.env }
 }
 
-resource "aws_ecr_repository" "frontend" {
-  name                 = "ticketing/frontend"
-  image_tag_mutability = "MUTABLE"
-  force_delete         = true
-
-  image_scanning_configuration { scan_on_push = true }
-  tags = { Name = "ecr-frontend", Environment = var.env }
-}
-
-# GitHub Actions OIDC Provider
-resource "aws_iam_openid_connect_provider" "github" {
-  url             = "https://token.actions.githubusercontent.com"
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+# GitHub Actions OIDC Provider (bootstrap에서 생성됨 — 여기선 참조만)
+data "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
 }
 
 # GitHub Actions IAM Role
@@ -44,7 +33,7 @@ resource "aws_iam_role" "github_actions" {
     Statement = [{
       Effect = "Allow"
       Principal = {
-        Federated = aws_iam_openid_connect_provider.github.arn
+        Federated = data.aws_iam_openid_connect_provider.github.arn
       }
       Action = "sts:AssumeRoleWithWebIdentity"
       Condition = {
@@ -92,6 +81,11 @@ resource "aws_iam_role_policy" "github_actions" {
         Effect   = "Allow"
         Action   = ["s3:PutObject", "s3:DeleteObject", "s3:GetObject"]
         Resource = "${var.s3_frontend_arn}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = var.s3_frontend_arn
       },
       {
         Effect   = "Allow"

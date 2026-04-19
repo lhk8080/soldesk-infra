@@ -221,7 +221,7 @@ resource "aws_eks_node_group" "app" {
   ami_type        = "AL2023_x86_64_STANDARD"
 
   scaling_config {
-    desired_size = 2
+    desired_size = 4
     min_size     = 2
     max_size     = 6
   }

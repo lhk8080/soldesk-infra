@@ -18,8 +18,13 @@ variable "cognito_user_pool_client_id" {
   type        = string
 }
 
-variable "alb_listener_arn" {
-  description = "Internal ALB의 HTTP listener ARN. 빈 문자열이면 Integration/Route가 생성되지 않음 (첫 apply 시점)"
+variable "cluster_name" {
+  description = "ALB 태그 lookup용 EKS 클러스터 이름 (elbv2.k8s.aws/cluster)"
   type        = string
-  default     = ""
+}
+
+variable "ingress_stack_tag" {
+  description = "ALB Ingress 식별 태그 (ingress.k8s.aws/stack = <ns>/<ingress-name>)"
+  type        = string
+  default     = "ticketing/ticketing-ingress"
 }

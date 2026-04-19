@@ -8,6 +8,14 @@ terraform {
       source  = "hashicorp/null"
       version = "~> 3.0"
     }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "~> 2.13"
+    }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 2.30"
+    }
   }
   required_version = ">= 1.5.0"
 }
@@ -20,6 +28,31 @@ provider "aws" {
 provider "aws" {
   alias  = "us_east_1"
   region = "us-east-1"
+}
+
+# Helm provider: EKS 클러스터에 차트 설치용
+# exec plugin으로 매 apply마다 새 토큰 발급 (kubeconfig 의존성 제거)
+provider "helm" {
+  kubernetes {
+    host                   = module.eks.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.eks.cluster_ca)
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", var.aws_region]
+    }
+  }
+}
+
+# Kubernetes provider: ArgoCD Application CR 등 k8s 오브젝트 선언적 관리용
+provider "kubernetes" {
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.eks.cluster_ca)
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", var.aws_region]
+  }
 }
 
 module "network" {
@@ -80,9 +113,11 @@ module "api_gateway" {
   private_subnet_ids          = module.network.private_subnet_ids
   cognito_user_pool_id        = module.cognito.user_pool_id
   cognito_user_pool_client_id = module.cognito.user_pool_client_id
-  alb_listener_arn            = var.alb_listener_arn
+  cluster_name                = var.eks_cluster_name
 
-  depends_on = [module.network, module.cognito]
+  # ArgoCD가 ticketing-ingress를 동기화한 뒤에야 ALB Controller가 ALB를 생성함.
+  # 그 전에 api_gateway가 Integration 만들면 ALB lookup 실패.
+  depends_on = [module.network, module.cognito, module.argocd]
 }
 
 module "sqs" {
@@ -201,16 +236,59 @@ module "eks" {
   depends_on = [module.network, null_resource.post_eks_vpc_cleanup]
 }
 
-# Internal ALB DNS lookup (ALB Ingress Controller가 생성한 ALB)
-# alb_listener_arn이 채워진 후에만 lookup, 첫 apply 사이클에서는 빈 문자열
-data "aws_lb_listener" "ingress" {
-  count = var.alb_listener_arn != "" ? 1 : 0
-  arn   = var.alb_listener_arn
+# AWS Load Balancer Controller: ticketing-ingress(alb)가 실제 ALB로 프로비저닝되려면 필요.
+# eks 모듈이 IRSA role을 이미 만들어 두었으므로 여기서는 설치 + SA 바인딩만 수행.
+module "alb_controller" {
+  source = "./modules/alb_controller"
+
+  cluster_name = module.eks.cluster_name
+  aws_region   = var.aws_region
+  vpc_id       = module.network.vpc_id
+  role_arn     = module.eks.alb_controller_role_arn
+
+  depends_on = [module.eks]
 }
 
-data "aws_lb" "ingress" {
-  count = var.alb_listener_arn != "" ? 1 : 0
-  arn   = data.aws_lb_listener.ingress[0].load_balancer_arn
+# KEDA: ticketing 차트의 ScaledObject/TriggerAuthentication이 의존하는 CRD 제공.
+# ArgoCD 루트 App이 ticketing을 동기화하기 전에 CRD가 있어야 하므로 argocd보다 먼저 설치.
+module "keda" {
+  source = "./modules/keda"
+
+  depends_on = [module.eks]
+}
+
+# 앱 런타임 설정(Secret/ConfigMap) 주입.
+# ticketing 차트가 envFrom으로 참조하는 ticketing-secrets / ticketing-config를 생성.
+# 추후 SSM + External Secrets Operator로 교체 예정.
+module "app_config" {
+  source = "./modules/app_config"
+
+  aws_region = var.aws_region
+
+  db_writer_host = module.rds.writer_endpoint
+  db_reader_host = module.rds.reader_endpoint
+  db_port        = module.rds.db_port
+  db_password    = var.db_password
+
+  redis_host = module.elasticache.redis_endpoint
+  redis_port = module.elasticache.redis_port
+
+  sqs_queue_url             = module.sqs.reservation_queue_url
+  sqs_queue_interactive_url = module.sqs.reservation_ui_queue_url
+
+  cognito_user_pool_id  = module.cognito.user_pool_id
+  cognito_app_client_id = module.cognito.user_pool_client_id
+
+  depends_on = [module.eks]
+}
+
+# ArgoCD: GitOps 진입점. Helm 설치만 담당.
+# Application(루트 App) 등록은 Terraform 밖에서 kubectl apply 로 수행 (apply.sh).
+# → kubernetes_manifest 의 plan-time CRD 검증 의존성을 회피.
+module "argocd" {
+  source = "./modules/argocd"
+
+  depends_on = [module.eks, module.keda]
 }
 
 module "cicd" {
