@@ -75,8 +75,15 @@ if [ -n "$VPC_ID" ]; then
   done
 fi
 
+# data source 는 destroy 시점에도 refresh 되는데, ALB 를 위에서 이미 지웠으므로
+# aws_lb lookup 이 0 results 로 실패함. state 에서 제거하여 refresh 생략.
+echo "==> ALB data source state 제거 (ALB 이미 삭제됨)"
+terraform state rm \
+  module.api_gateway.data.aws_lb.ingress \
+  module.api_gateway.data.aws_lb_listener.ingress 2>/dev/null || true
+
 echo "==> terraform destroy"
-terraform destroy -auto-approve
+terraform destroy -auto-approve -refresh=false
 
 echo "==> ArgoCD CRD 정리 (terraform destroy 이후, 클러스터 남아있을 때만)"
 if kubectl cluster-info >/dev/null 2>&1; then
