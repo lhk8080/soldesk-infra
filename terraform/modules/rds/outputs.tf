@@ -9,3 +9,7 @@ output "reader_endpoint" {
 output "db_port" {
   value = aws_db_instance.writer.port
 }
+output "db_password" {
+  value     = random_password.db.result
+  sensitive = true
+}

@@ -16,11 +16,8 @@ variable "app_name" {
   default     = "ticketing"
 }
 
-variable "db_password" {
-  description = "RDS 마스터 비밀번호"
-  type        = string
-  sensitive   = true
-}
+# RDS 비번은 modules/rds 가 random_password로 생성하고 SSM에 저장한다 (ESO가 K8s Secret으로 주입).
+# tfvars/환경변수에서 받지 않는다.
 
 variable "github_repo" {
   description = "GitHub 리포지토리 (owner/repo)"

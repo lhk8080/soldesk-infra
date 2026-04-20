@@ -221,9 +221,9 @@ resource "aws_eks_node_group" "app" {
   ami_type        = "AL2023_x86_64_STANDARD"
 
   scaling_config {
-    desired_size = 4
+    desired_size = 6
     min_size     = 2
-    max_size     = 6
+    max_size     = 8
   }
 
   update_config { max_unavailable = 1 }
@@ -266,9 +266,9 @@ resource "aws_iam_role_policy_attachment" "ebs_csi" {
 }
 
 resource "aws_eks_addon" "ebs_csi" {
-  cluster_name             = aws_eks_cluster.main.name
-  addon_name               = "aws-ebs-csi-driver"
-  service_account_role_arn = aws_iam_role.ebs_csi.arn
+  cluster_name                = aws_eks_cluster.main.name
+  addon_name                  = "aws-ebs-csi-driver"
+  service_account_role_arn    = aws_iam_role.ebs_csi.arn
   resolve_conflicts_on_create = "OVERWRITE"
 
   depends_on = [aws_eks_node_group.app]
@@ -443,6 +443,46 @@ resource "aws_iam_role_policy" "sqs_access" {
         "sqs:GetQueueAttributes",
       ]
       Resource = var.sqs_queue_arns
+    }]
+  })
+}
+
+# CloudWatch Exporter용 IRSA (Prometheus가 AWS CloudWatch 메트릭 수집 — SQS/RDS/Redis 등)
+# SA: monitoring:cloudwatch-exporter (monitoring chart가 생성)
+resource "aws_iam_role" "cloudwatch_exporter" {
+  name = "ticketing-cloudwatch-exporter-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.eks.arn
+      }
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "${local.oidc_issuer}:sub" = "system:serviceaccount:monitoring:cloudwatch-exporter"
+          "${local.oidc_issuer}:aud" = "sts.amazonaws.com"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "cloudwatch_exporter" {
+  name = "ticketing-cloudwatch-exporter-policy"
+  role = aws_iam_role.cloudwatch_exporter.name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "cloudwatch:GetMetricData",
+        "cloudwatch:GetMetricStatistics",
+        "cloudwatch:ListMetrics",
+        "tag:GetResources",
+      ]
+      Resource = "*"
     }]
   })
 }

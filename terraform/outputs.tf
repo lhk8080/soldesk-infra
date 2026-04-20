@@ -82,6 +82,16 @@ output "keda_operator_role_arn" {
   value       = module.eks.keda_operator_role_arn
 }
 
+output "external_secrets_role_arn" {
+  description = "IRSA role for ESO. ticketing-eso-sa의 eks.amazonaws.com/role-arn 으로 주입."
+  value       = module.external_secrets.role_arn
+}
+
+output "ssm_parameter_prefix" {
+  description = "ticketing 시크릿이 저장된 SSM 경로 prefix (예: /ticketing/prod). ExternalSecret이 dataFrom.find.path로 사용."
+  value       = module.ssm.parameter_prefix
+}
+
 output "github_actions_role_arn" {
   value = module.cicd.github_actions_role_arn
 }

@@ -1,3 +1,23 @@
+terraform {
+  required_providers {
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
+  }
+}
+
+# RDS 마스터 비번은 모듈이 직접 생성. tfvars 평문 입력 폐지.
+# state 안에는 여전히 평문으로 보관되지만, 외부 SSM Parameter Store에 SecureString으로
+# 저장되어 ESO를 통해 K8s Secret으로 주입된다.
+# 비번 회전 시: random_password.db.keepers를 변경하여 새 값 강제 생성.
+resource "random_password" "db" {
+  length  = 24
+  special = true
+  # RDS는 / @ " 등 일부 특수문자를 거부 → 호환되는 집합만 허용
+  override_special = "!#$%^&*()-_=+[]{}<>:?"
+}
+
 resource "aws_db_subnet_group" "main" {
   name       = "prod-rds-subnet-group"
   subnet_ids = var.subnet_ids
@@ -15,7 +35,7 @@ resource "aws_db_instance" "writer" {
 
   db_name  = "ticketing"
   username = "root"
-  password = var.db_password
+  password = random_password.db.result
   port     = 3306
 
   db_subnet_group_name   = aws_db_subnet_group.main.name

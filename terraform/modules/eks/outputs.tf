@@ -5,8 +5,13 @@ output "alb_controller_role_arn" { value = aws_iam_role.alb_controller.arn }
 output "node_role_arn" { value = aws_iam_role.eks_node.arn }
 output "node_role_name" { value = aws_iam_role.eks_node.name }
 output "oidc_provider_arn" { value = aws_iam_openid_connect_provider.eks.arn }
+output "oidc_issuer" {
+  description = "https:// 가 제거된 OIDC issuer host/path. IRSA trust policy의 Condition key prefix로 사용."
+  value       = local.oidc_issuer
+}
 output "cluster_autoscaler_role_arn" { value = aws_iam_role.cluster_autoscaler.arn }
 output "cluster_security_group_id" { value = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id }
 output "sqs_access_role_arn" { value = aws_iam_role.sqs_access.arn }
 output "keda_operator_role_arn" { value = aws_iam_role.keda_operator.arn }
+output "cloudwatch_exporter_role_arn" { value = aws_iam_role.cloudwatch_exporter.arn }
 output "ebs_csi_role_arn" { value = aws_iam_role.ebs_csi.arn }

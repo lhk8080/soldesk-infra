@@ -297,6 +297,12 @@ module "external_secrets" {
   oidc_issuer          = module.eks.oidc_issuer
   ssm_parameter_prefix = module.ssm.parameter_prefix
 
+  # monitoring 차트의 ESO SA 도 동일 role 을 AssumeRole 할 수 있게 허용.
+  # IAM 정책 Resource(/ticketing/prod/*) 안에 grafana/*, alertmanager/* 도 들어가므로 권한 범위는 그대로.
+  extra_service_account_subjects = [
+    "system:serviceaccount:monitoring:monitoring-eso-sa",
+  ]
+
   depends_on = [module.eks]
 }
 
