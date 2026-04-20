@@ -9,3 +9,8 @@ variable "chart_version" {
   type        = string
   default     = "2.15.2"
 }
+
+variable "operator_role_arn" {
+  description = "keda-operator SA에 IRSA로 바인딩할 IAM Role ARN (SQS 호출 권한 보유)"
+  type        = string
+}

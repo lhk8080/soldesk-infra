@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Terraform apply 래퍼 (4단계):
+# Terraform apply 래퍼 (5단계):
 #   1. EKS cold-start
-#   2. ArgoCD(helm) + ALB controller 먼저 apply
-#   3. ArgoCD Application CR 생성 (계정 고유 값을 Helm parameters 로 런타임 주입)
-#        → repo 에는 계정 ID/ECR URL 이 없어서 팀원들이 shared repo 를 그대로 사용 가능
-#        → 이미지 태그는 기존 Application 의 값을 보존(있으면). 없으면 "seed-pending".
-#        → 실제 SHA 로 교체는 soldesk-app/scripts/seed.sh 가 kubectl patch 로 수행.
-#   4. 전체 terraform apply (api_gateway.wait_for_alb 통과)
+#   2. ArgoCD(helm) + ALB controller + KEDA apply
+#   3. ESO ArgoCD Application 등록 (IRSA role ARN 주입) → ESO CRD/컨트롤러 준비
+#   4. ticketing ArgoCD Application 등록 (이미지/ECR/IRSA + ESO 관련 파라미터 주입)
+#   5. 전체 terraform apply (api_gateway.wait_for_alb 통과)
+#
+# 비번/엔드포인트는 더 이상 tfvars에 두지 않는다. modules/rds 가 random_password로 생성하고
+# modules/ssm 이 SSM Parameter Store(SecureString)에 저장 → ESO가 K8s Secret(ticketing-secrets)
+# 으로 자동 동기화.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -14,18 +16,13 @@ REGION="${AWS_REGION:-ap-northeast-2}"
 K8S_REPO_URL="${K8S_REPO_URL:-https://github.com/lhk8080/soldesk-k8s.git}"
 K8S_REPO_REVISION="${K8S_REPO_REVISION:-main}"
 
-if [ -z "${TF_VAR_db_password:-}" ] && ! grep -q '^db_password' terraform.tfvars 2>/dev/null; then
-  echo "ERROR: db_password 가 tfvars 에도 TF_VAR_db_password 에도 없습니다." >&2
-  exit 1
-fi
-
 # ── 1단계: EKS cold-start ──────────────────────────────────────────
 if ! kubectl cluster-info >/dev/null 2>&1 \
    || ! terraform state list 2>/dev/null | grep -q '^module\.eks\.'; then
-  echo "==> [1/4] terraform apply -target=module.eks (cold-start)"
+  echo "==> [1/5] terraform apply -target=module.eks (cold-start)"
   terraform apply -auto-approve -target=module.network -target=module.eks
 else
-  echo "==> [1/4] EKS 이미 존재 — cold-start 단계 건너뜀"
+  echo "==> [1/5] EKS 이미 존재 — cold-start 단계 건너뜀"
 fi
 
 CLUSTER="$(terraform output -raw eks_cluster_name 2>/dev/null || echo "")"
@@ -36,10 +33,19 @@ for i in {1..12}; do
   echo "  클러스터 API 대기... ($i/12)"; sleep 5
 done
 
-# ── 2단계: ArgoCD + ALB controller + KEDA ────────────────────────
-echo "==> [2/4] terraform apply -target=argocd,alb_controller,keda"
+# ── 2단계: ArgoCD + ALB controller + KEDA + RDS/SSM/ESO IRSA ─────
+# RDS/SSM/external_secrets 도 같이 apply 해서 [3]에서 ESO IRSA role ARN / SSM prefix를 읽을 수 있게 함.
+echo "==> [2/5] terraform apply -target=argocd,alb_controller,keda,rds,ssm,external_secrets"
 terraform apply -auto-approve \
-  -target=module.argocd -target=module.alb_controller -target=module.keda
+  -target=module.argocd \
+  -target=module.alb_controller \
+  -target=module.keda \
+  -target=module.rds \
+  -target=module.elasticache \
+  -target=module.sqs \
+  -target=module.cognito \
+  -target=module.ssm \
+  -target=module.external_secrets
 
 echo "  Application CRD 대기..."
 for i in {1..24}; do
@@ -47,15 +53,77 @@ for i in {1..24}; do
   sleep 5
 done
 
-# ── 3단계: ArgoCD Application CR 생성 (동적) ─────────────────────
-echo "==> [3/4] ArgoCD Application 생성 (Helm parameters 로 계정값 주입)"
-ACCOUNT_ID="$(terraform output -raw aws_account_id)"
+# ── 3단계: ESO ArgoCD Application 등록 (IRSA role ARN 주입) ──────
+echo "==> [3/5] ESO Application 등록"
+# terraform apply -target 사용 시 root outputs 가 갱신되지 않는 알려진 동작 회피.
+# 값들은 app_name/env/account_id 로부터 결정적이므로 직접 계산.
+APP_NAME="${APP_NAME:-ticketing}"
+ENV_NAME="${ENV:-prod}"
+ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+SSM_PREFIX="/${APP_NAME}/${ENV_NAME}"
+ESO_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${APP_NAME}-external-secrets-role"
+echo "  ESO role: $ESO_ROLE_ARN"
+echo "  SSM prefix: $SSM_PREFIX"
+
+# ESO Application CR 은 계정 고유 값이 없으므로 그대로 inline.
+# (소스 ESO 차트는 https://charts.external-secrets.io. soldesk-k8s/argocd/platform/external-secrets.yaml
+#  과 동일 내용 — git 단일 진실 원하면 ArgoCD root-app으로 옮겨 그 파일을 자동 sync.)
+cat <<'EOF' | kubectl apply -f -
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-secrets
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.external-secrets.io
+    chart: external-secrets
+    targetRevision: 0.10.4
+    helm:
+      releaseName: external-secrets
+      values: |
+        installCRDs: true
+        serviceAccount:
+          create: true
+          name: external-secrets
+        webhook:
+          create: true
+        certController:
+          create: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-secrets
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+EOF
+
+echo "  ESO CRD 대기 (externalsecrets.external-secrets.io)..."
+for i in {1..36}; do
+  kubectl get crd externalsecrets.external-secrets.io >/dev/null 2>&1 && { echo "  ESO CRD 확인"; break; }
+  sleep 5
+done
+
+echo "  ESO 컨트롤러 Pod Ready 대기..."
+kubectl -n external-secrets wait --for=condition=Available deploy --all --timeout=300s 2>/dev/null || true
+
+# ── 4단계: ticketing ArgoCD Application 등록 ─────────────────────
+echo "==> [4/5] ticketing Application 등록 (Helm parameters 로 계정값 주입)"
+# ACCOUNT_ID 는 [3] 단계에서 이미 셋팅됨
 ECR_WAS="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/ticketing/ticketing-was"
 ECR_WORKER="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/ticketing/worker-svc"
 SA_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/ticketing-sqs-access-role"
 
 # 기존 Application 에 이미 태그가 설정돼 있으면 보존 (seed.sh 로 push 된 실제 SHA).
-# 없으면 seed-pending (이미지 없어도 Ingress 는 생성되어 ALB 프로비저닝은 진행됨).
 EXISTING_TAG="$(kubectl -n argocd get application ticketing-prod \
   -o jsonpath='{range .spec.source.helm.parameters[?(@.name=="images.was.tag")]}{.value}{end}' \
   2>/dev/null || true)"
@@ -91,6 +159,12 @@ spec:
           value: ${IMAGE_TAG}
         - name: serviceAccounts.sqs-access-sa.annotations.eks\.amazonaws\.com/role-arn
           value: ${SA_ROLE_ARN}
+        - name: serviceAccounts.ticketing-eso-sa.annotations.eks\.amazonaws\.com/role-arn
+          value: ${ESO_ROLE_ARN}
+        - name: externalSecrets.ssmPrefix
+          value: ${SSM_PREFIX}
+        - name: externalSecrets.region
+          value: ${REGION}
   destination:
     server: https://kubernetes.default.svc
     namespace: ticketing
@@ -101,6 +175,18 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    # ESO CRD가 자동 채우는 기본값들 — Git 매니페스트엔 명시 안 했지만
+    # 클러스터에 적용되면 추가되어 ArgoCD가 drift로 인식. 무시 처리.
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jsonPointers:
+        - /spec/target/deletionPolicy
+      jqPathExpressions:
+        - .spec.data[].remoteRef.conversionStrategy
+        - .spec.data[].remoteRef.decodingStrategy
+        - .spec.data[].remoteRef.metadataPolicy
 EOF
 
 echo "  Ingress 생성 대기 (ArgoCD sync 중)..."
@@ -110,8 +196,8 @@ for i in {1..60}; do
   sleep 10
 done
 
-# ── 4단계: 전체 apply ─────────────────────────────────────────────
-echo "==> [4/4] terraform apply (전체)"
+# ── 5단계: 전체 apply ─────────────────────────────────────────────
+echo "==> [5/5] terraform apply (전체)"
 terraform apply -auto-approve
 
 echo "==> apply 완료"
@@ -123,3 +209,4 @@ if [ "$IMAGE_TAG" = "seed-pending" ]; then
 fi
 echo "  ArgoCD UI: kubectl port-forward -n argocd svc/argocd-server 8080:80"
 echo "  초기 비밀번호: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
+echo "  ticketing-secrets 동기화 확인: kubectl -n ticketing get externalsecret,secret ticketing-secrets"

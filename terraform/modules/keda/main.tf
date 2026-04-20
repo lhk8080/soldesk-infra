@@ -21,4 +21,11 @@ resource "helm_release" "keda" {
   atomic          = true
   cleanup_on_fail = true
   timeout         = 600
+
+  # IRSA: keda-operator가 SQS GetQueueAttributes를 호출하려면 자기 자격증명 필요.
+  # TriggerAuthentication(podIdentity.provider=aws, identityOwner=keda)이 이 SA의 토큰을 사용.
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = var.operator_role_arn
+  }
 }

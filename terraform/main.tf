@@ -16,6 +16,10 @@ terraform {
       source  = "hashicorp/kubernetes"
       version = "~> 2.30"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
   required_version = ">= 1.5.0"
 }
@@ -105,8 +109,8 @@ module "cloudfront" {
 # 첫 apply 시 alb_listener_arn=""이면 API GW 본체만 만들고
 # Integration/Route는 두 번째 apply (setup-all.sh가 listener ARN 박은 후)에서 생성
 module "api_gateway" {
-  source = "./modules/api_gateway"
-  env    = var.env
+  source     = "./modules/api_gateway"
+  env        = var.env
   aws_region = var.aws_region
 
   vpc_id                      = module.network.vpc_id
@@ -140,7 +144,6 @@ module "rds" {
   env               = var.env
   subnet_ids        = module.network.private_subnet_ids
   security_group_id = module.network.rds_sg_id
-  db_password       = var.db_password
 
   # destroy 시 RDS가 네트워크(SG/서브넷)보다 먼저 삭제되도록 보장
   depends_on = [module.network]
@@ -225,7 +228,7 @@ module "eks" {
   subnet_ids        = module.network.public_subnet_ids
   security_group_id = module.network.eks_sg_id
   cluster_name      = var.eks_cluster_name
-  sqs_queue_arns    = [
+  sqs_queue_arns = [
     module.sqs.reservation_queue_arn,
     module.sqs.reservation_dlq_arn,
     module.sqs.reservation_ui_queue_arn,
@@ -254,30 +257,45 @@ module "alb_controller" {
 module "keda" {
   source = "./modules/keda"
 
+  operator_role_arn = module.eks.keda_operator_role_arn
+
   depends_on = [module.eks]
 }
 
-# 앱 런타임 설정(Secret/ConfigMap) 주입.
-# ticketing 차트가 envFrom으로 참조하는 ticketing-secrets / ticketing-config를 생성.
-# 추후 SSM + External Secrets Operator로 교체 예정.
-module "app_config" {
-  source = "./modules/app_config"
+# 앱 런타임 시크릿/엔드포인트는 SSM Parameter Store에 저장하고
+# ESO(External Secrets Operator)가 ticketing-secrets K8s Secret으로 머티리얼라이즈.
+# (이전: module.app_config 가 kubernetes_secret 으로 직접 생성 → 폐기)
+module "ssm" {
+  source = "./modules/ssm"
 
+  env        = var.env
+  app_name   = var.app_name
   aws_region = var.aws_region
 
   db_writer_host = module.rds.writer_endpoint
   db_reader_host = module.rds.reader_endpoint
-  db_port        = module.rds.db_port
-  db_password    = var.db_password
+  db_password    = module.rds.db_password
 
   redis_host = module.elasticache.redis_endpoint
-  redis_port = module.elasticache.redis_port
 
   sqs_queue_url             = module.sqs.reservation_queue_url
   sqs_queue_interactive_url = module.sqs.reservation_ui_queue_url
 
   cognito_user_pool_id  = module.cognito.user_pool_id
   cognito_app_client_id = module.cognito.user_pool_client_id
+}
+
+# ESO IRSA role. ESO 차트는 ArgoCD App-of-Apps(soldesk-k8s/argocd/platform/external-secrets.yaml)
+# 가 설치하므로 여기서는 IAM만 만든다.
+module "external_secrets" {
+  source = "./modules/external_secrets"
+
+  env                  = var.env
+  app_name             = var.app_name
+  aws_region           = var.aws_region
+  oidc_provider_arn    = module.eks.oidc_provider_arn
+  oidc_issuer          = module.eks.oidc_issuer
+  ssm_parameter_prefix = module.ssm.parameter_prefix
 
   depends_on = [module.eks]
 }
