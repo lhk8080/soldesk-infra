@@ -190,6 +190,8 @@ resource "aws_apigatewayv2_route" "api_public" {
     "GET /api/read/health",
     "GET /api/read/waiting-room/{proxy+}",
     "GET /api/read/booking/{proxy+}",
+    # 공개: write 쪽 대기열 상태 폴링 (queue_ref UUID 기반, 인증 대신 unguessable ref 로 보호)
+    "GET /api/write/concerts/waiting-room/status/{queue_ref}",
     # CORS preflight
     "OPTIONS /api/{proxy+}",
   ])
