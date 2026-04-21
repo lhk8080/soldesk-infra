@@ -50,6 +50,46 @@ if [ -n "$CLUSTER" ]; then
           done
     fi
 
+    echo "==> KEDA CR finalizer 제거 (keda operator 가 먼저 사라진 경우 대비)"
+    # ScaledObject/TriggerAuthentication 에 finalizer.keda.sh 가 걸려 있는데
+    # operator 가 이미 지워졌으면 k8s 가 영원히 대기 → helm_release.keda destroy 타임아웃.
+    for kind in scaledobjects.keda.sh triggerauthentications.keda.sh scaledjobs.keda.sh clustertriggerauthentications.keda.sh; do
+      short="${kind%%.*}"
+      kubectl api-resources 2>/dev/null | grep -q "^${short} " || continue
+      kubectl get "$kind" -A -o json 2>/dev/null \
+        | jq -r '.items[] | "\(.metadata.namespace) \(.metadata.name)"' \
+        | while read ns name; do
+            [ -z "$name" ] && continue
+            if [ -n "$ns" ] && [ "$ns" != "null" ]; then
+              kubectl patch "$kind" "$name" -n "$ns" \
+                --type=merge -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
+              kubectl delete "$kind" "$name" -n "$ns" --wait=false --ignore-not-found >/dev/null 2>&1 || true
+            else
+              kubectl patch "$kind" "$name" \
+                --type=merge -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
+              kubectl delete "$kind" "$name" --wait=false --ignore-not-found >/dev/null 2>&1 || true
+            fi
+          done
+    done
+
+    echo "==> ExternalSecret finalizer 제거 (ESO operator 가 먼저 사라진 경우 대비)"
+    for kind in externalsecrets.external-secrets.io secretstores.external-secrets.io clustersecretstores.external-secrets.io; do
+      short="${kind%%.*}"
+      kubectl api-resources 2>/dev/null | grep -q "^${short} " || continue
+      kubectl get "$kind" -A -o json 2>/dev/null \
+        | jq -r '.items[] | "\(.metadata.namespace) \(.metadata.name)"' \
+        | while read ns name; do
+            [ -z "$name" ] && continue
+            if [ -n "$ns" ] && [ "$ns" != "null" ]; then
+              kubectl patch "$kind" "$name" -n "$ns" \
+                --type=merge -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
+            else
+              kubectl patch "$kind" "$name" \
+                --type=merge -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
+            fi
+          done
+    done
+
     echo "==> 모든 namespace의 Terminating 강제 해제"
     kubectl get ns --no-headers 2>/dev/null | awk '$2=="Terminating"{print $1}' | while read ns; do
       echo "  - $ns finalize"
