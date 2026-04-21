@@ -274,6 +274,43 @@ resource "aws_eks_addon" "ebs_csi" {
   depends_on = [aws_eks_node_group.app]
 }
 
+# gp3 StorageClass — monitoring(Prometheus/Grafana/Loki/Alertmanager) PVC 가 storageClassName=gp3 참조.
+# EKS 는 기본적으로 gp2(in-tree) SC 만 제공 → EBS CSI driver 와 짝 맞는 gp3 를 명시 생성.
+resource "kubernetes_storage_class_v1" "gp3" {
+  metadata {
+    name = "gp3"
+    annotations = {
+      "storageclass.kubernetes.io/is-default-class" = "true"
+    }
+  }
+  storage_provisioner    = "ebs.csi.aws.com"
+  reclaim_policy         = "Delete"
+  volume_binding_mode    = "WaitForFirstConsumer"
+  allow_volume_expansion = true
+
+  parameters = {
+    type   = "gp3"
+    fsType = "ext4"
+  }
+
+  depends_on = [aws_eks_addon.ebs_csi]
+}
+
+# gp2 기본 클래스 해제 — 두 개가 default 면 PVC 가 어느 걸 쓸지 불확정.
+resource "kubernetes_annotations" "gp2_not_default" {
+  api_version = "storage.k8s.io/v1"
+  kind        = "StorageClass"
+  metadata {
+    name = "gp2"
+  }
+  annotations = {
+    "storageclass.kubernetes.io/is-default-class" = "false"
+  }
+  force = true
+
+  depends_on = [kubernetes_storage_class_v1.gp3]
+}
+
 # ALB Controller IAM (Ingress 자동 생성용)
 resource "aws_iam_policy" "alb_controller" {
   name   = "ticketing-alb-controller-policy"
