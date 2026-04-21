@@ -28,7 +28,70 @@ GitHub Actions CI 는 현재 **비활성화** (`soldesk-app/.github/workflows/*.
   - `docker`
   - `git`
 
-## Bootstrap 개념
+## 디렉토리 구조
+
+```
+soldesk-infra/
+├── bootstrap/   # (선행) Terraform remote state 용 S3/DynamoDB + GitHub OIDC Role
+└── terraform/   # (본편) 실제 서비스 인프라 — EKS/RDS/ArgoCD 등
+```
+
+> "bootstrap" 이라는 단어가 두 가지 의미로 쓰임에 주의.
+> - **`bootstrap/` 디렉토리** = Terraform 자체를 굴리기 위한 meta-인프라 (state backend, OIDC role)
+> - **아래 "Bootstrap 개념" 섹션** = `terraform/` 의 서비스 스택을 처음 세울 때 필요한 의존성 순서 (`apply.sh` / `seed.sh`)
+
+## bootstrap/ — Terraform 메타 인프라
+
+`terraform/` 보다 **먼저 한 번만** apply 하는 meta 레이어. 생성 리소스:
+
+| 리소스 | 용도 |
+|---|---|
+| S3 bucket `soldesk-tfstate` | Terraform remote state 저장 (여러 사람이 같은 state 공유 시 필수). 버전 관리 + SSE + public block 설정. `prevent_destroy = true`. |
+| DynamoDB `soldesk-tflock` | `terraform apply` 동시 실행 방지용 state lock. PAY_PER_REQUEST. |
+| GitHub OIDC provider | `token.actions.githubusercontent.com` 을 AWS IAM 이 신뢰 |
+| IAM Role `soldesk-github-actions-role` | GitHub Actions 워크플로우가 OIDC 로 assume. `AdministratorAccess` 부착. Trust 조건: `repo:<github_org>/<github_repo>:*` |
+
+### 언제 쓰는가
+- **현재(멀티 계정 개발)**: 안 써도 됨. `terraform/` 은 local state 사용 중이고 CI 도 disabled.
+- **팀 공용 단일 계정 전환 시**:
+  1. 공용 계정에서 `bootstrap/` 을 한 번 apply → S3 버킷 / DynamoDB / OIDC Role 생성
+  2. `terraform/` 에 `backend "s3"` 블록을 추가하여 remote state 로 전환
+  3. GitHub Secrets 에 OIDC Role ARN 등록하여 CI 재활성화
+
+### 사용 방법 (필요 시점에)
+
+```bash
+cd bootstrap
+terraform init
+
+cat > terraform.tfvars <<EOF
+project     = "soldesk"
+region      = "ap-northeast-2"
+github_org  = "<공용 조직>"
+github_repo = "soldesk-app"
+EOF
+
+terraform apply
+terraform output github_actions_role_arn  # → GitHub Secrets 에 등록
+```
+
+적용 후 `terraform/` 에 backend 설정 추가:
+```hcl
+terraform {
+  backend "s3" {
+    bucket         = "soldesk-tfstate"
+    key            = "terraform/prod.tfstate"
+    region         = "ap-northeast-2"
+    dynamodb_table = "soldesk-tflock"
+    encrypt        = true
+  }
+}
+```
+그리고 `terraform init -migrate-state` 로 기존 local state 를 S3 로 이전.
+
+> **주의**: `bootstrap/` 의 S3 버킷은 `prevent_destroy = true`. 삭제하려면 코드에서 flag 제거 후 `terraform destroy`. 이 안에 state 파일이 있으면 "계란을 담은 바구니를 먼저 버리는" 격이라 위험 — 필요 시 수동으로 object 비우고 버킷 삭제.
+
+## Bootstrap 개념 (terraform/ 서비스 스택)
 
 "Bootstrap" = 비어있는 AWS 계정에 소스만 가지고 스택을 처음부터 세우는 과정. 의존성이 순환하는 지점들이 있어서 **단순히 `terraform apply` 한 번으로는 안 됨**:
 
