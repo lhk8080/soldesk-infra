@@ -194,8 +194,9 @@ resource "aws_apigatewayv2_route" "api_public" {
     "GET /api/write/concerts/waiting-room/status/{queue_ref}",
     # 공개: 대기열 혼잡도 metrics (user 컨텍스트 없음)
     "GET /api/write/concerts/{show_id}/waiting-room/metrics",
-    # (OPTIONS /api/{proxy+} 는 제거 — aws_apigatewayv2_api.cors_configuration 이
-    #  자동으로 프리플라이트를 응답. 명시적 OPTIONS route 는 백엔드로 프록시돼 실패.)
+    # CORS preflight (cors_configuration 과 병행 — auto-CORS 단독으론 일부 경로에서
+    #  preflight 가 통과 못하는 케이스가 있어 명시 route 유지).
+    "OPTIONS /api/{proxy+}",
   ])
 
   api_id    = aws_apigatewayv2_api.main.id
