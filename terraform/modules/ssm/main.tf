@@ -45,6 +45,26 @@ locals {
   }
 }
 
+# Alertmanager Slack webhook — 별도 resource 로 분리한 이유:
+#   1) SSM SecureString 은 빈 값 거부 → 미입력 시 placeholder 사용
+#   2) 운영자가 aws ssm put-parameter 로 실값 주입 후, terraform apply 가 placeholder 로
+#      되돌리지 않도록 lifecycle ignore_changes 로 value 변경 무시.
+resource "aws_ssm_parameter" "alertmanager_slack_webhook" {
+  name  = "${local.prefix}/alertmanager/slack_webhook"
+  type  = "SecureString"
+  value = var.alertmanager_slack_webhook != "" ? var.alertmanager_slack_webhook : "REPLACE_ME"
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+
+  tags = {
+    Application = var.app_name
+    Environment = var.env
+    ManagedBy   = "terraform"
+  }
+}
+
 resource "aws_ssm_parameter" "this" {
   for_each = local.parameters
 
