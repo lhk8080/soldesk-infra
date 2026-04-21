@@ -192,8 +192,10 @@ resource "aws_apigatewayv2_route" "api_public" {
     "GET /api/read/booking/{proxy+}",
     # 공개: write 쪽 대기열 상태 폴링 (queue_ref UUID 기반, 인증 대신 unguessable ref 로 보호)
     "GET /api/write/concerts/waiting-room/status/{queue_ref}",
-    # CORS preflight
-    "OPTIONS /api/{proxy+}",
+    # 공개: 대기열 혼잡도 metrics (user 컨텍스트 없음)
+    "GET /api/write/concerts/{show_id}/waiting-room/metrics",
+    # (OPTIONS /api/{proxy+} 는 제거 — aws_apigatewayv2_api.cors_configuration 이
+    #  자동으로 프리플라이트를 응답. 명시적 OPTIONS route 는 백엔드로 프록시돼 실패.)
   ])
 
   api_id    = aws_apigatewayv2_api.main.id
