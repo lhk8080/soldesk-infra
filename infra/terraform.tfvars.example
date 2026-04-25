@@ -1,0 +1,27 @@
+env        = "dev"
+aws_region = "ap-northeast-2"
+aws_account = "123456789012"
+
+cluster_name          = "ticketing-eks"
+cognito_domain_prefix = "ticketing-auth-dev"
+github_repo           = "my-org/soldesk-app"
+
+# 1차 apply 때는 비워둠. CloudFront 생성 후 output 값으로 채워서 재apply.
+cloudfront_domain = ""
+
+# 앱 배포 후 ALB listener ARN 확인 후 채워서 재apply.
+alb_listener_arn = ""
+
+# EKS 노드 그룹
+app_node_instance_types = ["t3.medium"]
+app_node_desired_size   = 2
+app_node_min_size       = 1
+app_node_max_size       = 4
+
+# RDS
+rds_instance_class        = "db.t3.micro"
+rds_allocated_storage     = 20
+rds_max_allocated_storage = 100
+
+# ElastiCache
+elasticache_node_type = "cache.t3.micro"
