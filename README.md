@@ -32,13 +32,17 @@ GitHub Actions CI 는 현재 **비활성화** (`soldesk-app/.github/workflows/*.
 
 ```
 soldesk-infra/
-├── bootstrap/   # (선행) Terraform remote state 용 S3/DynamoDB + GitHub OIDC Role
-└── terraform/   # (본편) 실제 서비스 인프라 — EKS/RDS/ArgoCD 등
+├── apply.sh        # 전체 apply 진입점 (bootstrap → infra → k8s → ArgoCD App)
+├── destroy.sh      # 전체 삭제 진입점 (k8s 리소스 선제 정리 후 단계별 destroy)
+├── bootstrap/      # Terraform remote state 용 S3/DynamoDB + GitHub OIDC Role
+├── infra/          # EKS, RDS, ElastiCache, S3, CloudFront, API Gateway, Cognito, WAF
+├── k8s/            # ALB Controller / KEDA / ArgoCD / ESO helm install (별도 state)
+└── modules/        # 위 두 root에서 참조하는 모듈들
 ```
 
 > "bootstrap" 이라는 단어가 두 가지 의미로 쓰임에 주의.
 > - **`bootstrap/` 디렉토리** = Terraform 자체를 굴리기 위한 meta-인프라 (state backend, OIDC role)
-> - **아래 "Bootstrap 개념" 섹션** = `terraform/` 의 서비스 스택을 처음 세울 때 필요한 의존성 순서 (`apply.sh` / `seed.sh`)
+> - **아래 "Bootstrap 개념" 섹션** = 서비스 스택을 처음 세울 때 필요한 의존성 순서 (`apply.sh` / `seed.sh`)
 
 ## bootstrap/ — Terraform 메타 인프라
 
@@ -117,63 +121,104 @@ terraform {
 
 ## 재현 순서
 
-### 1. 인프라 부트스트랩
+전체 흐름: **`apply.sh` (1차) → `seed.sh` → `apply.sh` (2차)**
+
+`apply.sh` 가 1차 apply 시점엔 ALB 가 아직 없어서 API Gateway → ALB 라우팅을 못 채움. seed 가 ticketing-ingress 를 만들면서 ALB 가 생성되면, listener ARN 을 `infra/terraform.tfvars` 에 채워 한 번 더 apply.
+
+### 1. soldesk-infra 1차 apply
 
 ```bash
 git clone <본인 fork>/soldesk-infra
-cd soldesk-infra/terraform
+cd soldesk-infra
 
-cp terraform.tfvars.example terraform.tfvars
-# 아래 값들을 본인 것으로 수정:
-#   db_password = "..."                 # RDS master password
-#   github_repo = "<본인>/soldesk-app"   # OIDC IAM role trust 에 사용
-#   key_name    = "<본인 EC2 keypair>"
+# infra/terraform.tfvars 수정 (필수)
+#   aws_account     = "<본인 12자리>"
+#   github_repo     = "<본인>/soldesk-app"
+#   alb_listener_arn = ""        # 1차 apply 시점에는 비워둠
+#   cloudfront_domain = ""       # 자동으로 채워짐 (apply.sh pass2)
 
 ./apply.sh
 ```
 
-`apply.sh` 는 의존성 순서 때문에 4단계로 나뉘어 apply:
-1. EKS 먼저 (kubernetes provider 가 클러스터 없이 plan 불가)
-2. ArgoCD / ALB Controller / KEDA Helm install
-3. ArgoCD Application CR 동적 생성 (계정별 ECR URL / IRSA ARN 주입, image tag 는 `seed-pending`)
-4. 나머지 리소스 전체 apply
+`apply.sh` 단계:
+1. **infra apply (pass 1)** — VPC / EKS / RDS / ElastiCache / Cognito / API Gateway / CloudFront 생성
+2. **infra apply (pass 2)** — `cloudfront_domain` output 을 Cognito callback URL 등에 주입
+3. **k8s addons apply** — ALB Controller, KEDA, ArgoCD, ESO 설치 (별도 state `k8s/`)
+4. **ArgoCD Application 등록** — `argocd/platform/*.yaml` 의 ticketing/monitoring Application 적용
 
-완료 후 `terraform output` 으로 frontend URL, API endpoint 등 확인.
+`TF_STATE_BUCKET` 미설정 시 `bootstrap/` 을 자동 apply 후 output 에서 읽어옴.
 
-### 2. 애플리케이션 시드 & 배포
+### 2. soldesk-app 시드
 
 ```bash
 git clone <본인 fork>/soldesk-app
 cd soldesk-app
-bash scripts/seed.sh
+./seed.sh
 ```
 
-`seed.sh` 가 수행하는 작업:
-0. **DB 스키마 초기화** — ephemeral `mysql-init` pod 로 `create.sql`, `Insert.sql` 실행
-1. **ECR push** — 현재 git HEAD SHA 로 이미지 태깅 후 본인 ECR 에 push
-2. **ArgoCD Application patch** — `images.*.tag` parameter 를 새 SHA 로 갱신 → ArgoCD 가 즉시 sync
-3. **프론트엔드 S3 sync + CloudFront invalidation**
+`seed.sh` 단계:
+1. **DB 마이그레이션 Job** — `db-schema/migrations/*.sql` 적용 (`schema_migrations` 테이블로 idempotent)
+2. **ECR push** — 현재 git HEAD SHA 로 이미지 태깅 후 push
+3. **ArgoCD Application image tag patch** — 새 SHA 로 sync 트리거
+4. **프론트엔드 S3 sync + CloudFront invalidation** + `index.html` 에 Cognito/API origin 주입
 
-완료 후 `terraform output cloudfront_domain` 의 URL 에서 서비스 확인.
+### 3. soldesk-infra 2차 apply (ALB listener ARN)
+
+seed 가 끝나면 ticketing ALB 가 생성됨. listener ARN 을 채워 API Gateway 가 ALB 로 라우팅하도록 마무리:
+
+```bash
+# ALB listener ARN 확인
+aws elbv2 describe-listeners --region ap-northeast-2 \
+  --load-balancer-arn $(aws elbv2 describe-load-balancers --region ap-northeast-2 \
+    --query 'LoadBalancers[?contains(LoadBalancerName,`ticketin`)].LoadBalancerArn' --output text) \
+  --query 'Listeners[0].ListenerArn' --output text
+
+# infra/terraform.tfvars 의 alb_listener_arn 에 위 값 기입
+cd soldesk-infra
+./apply.sh
+```
+
+이 시점부터 `https://<cloudfront_domain>` 에서 `/api/*` 요청까지 정상 동작.
 
 ## 재배포 (코드 수정 후)
 
 ```bash
 cd soldesk-app
-git pull   # 또는 본인 작업 commit
-bash scripts/seed.sh
+git pull
+./seed.sh
 ```
 
-`seed.sh` 는 매번 현재 git HEAD SHA 로 태깅하므로, 코드 바뀌면 자동으로 새 이미지로 배포됨.
+인프라 변경 없으면 `apply.sh` 재실행 불필요.
+
+## 운영 대시보드 접근
+
+apply 완료 후 ALB DNS 로 외부 접근 가능 (모두 `internet-facing` ingress):
+
+```bash
+kubectl get ingress -A
+# argocd-server, monitoring-grafana 의 ADDRESS 컬럼이 ALB DNS
+```
+
+| 대시보드 | 로그인 |
+|---|---|
+| ArgoCD | `root` / `soldesk1` (`accounts.root` + bcrypt 패스워드, `infra/terraform.tfvars` 의 `root_password_bcrypt` 변경 가능) |
+| Grafana | `admin` / `soldesk1` (SSM `/ticketing/prod/GRAFANA_ADMIN_PASSWORD` 값) |
+
+> Grafana 패스워드 변경 시: SSM 값 갱신 후 grafana pod 재시작. 단, 이미 sqlite DB 에 admin user 가 박혀 있으면 env 만 바꿔서는 반영 안 됨 → `kubectl exec ... -- grafana cli admin reset-admin-password <새 값>` 필요.
 
 ## 전체 삭제
 
 ```bash
-cd soldesk-infra/terraform
+cd soldesk-infra
 ./destroy.sh
 ```
 
-ALB, PV, ArgoCD 리소스 정리 순서가 꼬이지 않도록 단계별 destroy.
+순서:
+1. **K8s 선제 정리** — ArgoCD Application → ingress / LoadBalancer Service → workload(sts/deploy/ds/job) → 잔여 pod 강제 종료 → PVC. ALB controller 가 ALB/SG/TG 회수할 60초 대기.
+2. **`k8s/` terraform destroy** — addon helm release 정리
+3. **`infra/` terraform destroy** — compute 모듈의 destroy provisioner 가 잔여 ENI/ALB/SG 정리 후 VPC 삭제
+
+> destroy 가 멈추면 가장 흔한 원인은 **orphan ALB** (controller 가 ingress 삭제 전에 죽은 경우). 콘솔 또는 `aws elbv2 describe-load-balancers` 로 잔여 ALB 확인 후 수동 삭제하고 `destroy.sh` 재실행.
 
 ## 참고 문서
 

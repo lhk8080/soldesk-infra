@@ -15,16 +15,18 @@ resource "aws_subnet" "public" {
   }
 }
 
-# DB·캐시용 프라이빗 서브넷
+# DB·캐시 + internal ALB용 프라이빗 서브넷
 resource "aws_subnet" "private" {
   count             = 2
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.${count.index + 10}.0/24"
   availability_zone = data.aws_availability_zones.available.names[count.index]
   tags = {
-    Name        = "Private_VPC_DB_Pri_RT_SN${count.index + 1}"
-    Environment = var.env
-    Layer       = "db"
+    Name                                            = "Private_VPC_DB_Pri_RT_SN${count.index + 1}"
+    Environment                                     = var.env
+    Layer                                           = "db"
+    "kubernetes.io/role/internal-elb"               = "1"
+    "kubernetes.io/cluster/${var.eks_cluster_name}" = "shared"
   }
 }
 

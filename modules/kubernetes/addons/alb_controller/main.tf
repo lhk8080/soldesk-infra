@@ -3,7 +3,7 @@ resource "helm_release" "alb_controller" {
   repository       = "https://aws.github.io/eks-charts"
   chart            = "aws-load-balancer-controller"
   namespace        = var.namespace
-  version          = var.version
+  version          = var.chart_version
 
   wait            = true
   timeout         = 300

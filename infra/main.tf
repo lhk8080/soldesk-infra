@@ -118,8 +118,9 @@ module "ssm" {
   db_password    = random_password.db.result
   redis_password = random_password.redis.result
 
-  db_host              = module.rds.writer_endpoint
-  redis_host           = module.elasticache.redis_endpoint
+  db_writer_endpoint   = module.rds.writer_endpoint
+  db_reader_endpoint   = module.rds.reader_endpoint != null ? module.rds.reader_endpoint : module.rds.writer_endpoint
+  redis_endpoint       = module.elasticache.redis_endpoint
   cognito_user_pool_id = module.cognito.user_pool_id
   cognito_client_id    = module.cognito.user_pool_client_id
   sqs_url              = module.sqs.reservation_queue_url

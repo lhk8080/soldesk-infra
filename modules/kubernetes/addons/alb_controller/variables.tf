@@ -3,7 +3,7 @@ variable "aws_region" { type = string }
 variable "vpc_id" { type = string }
 variable "role_arn" { type = string }
 
-variable "version" {
+variable "chart_version" {
   type    = string
   default = "1.8.1"
 }

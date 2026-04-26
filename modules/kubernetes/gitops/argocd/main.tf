@@ -4,7 +4,7 @@ resource "helm_release" "argocd" {
   chart            = "argo-cd"
   namespace        = var.namespace
   create_namespace = true
-  version          = var.version
+  version          = var.chart_version
 
   wait            = true
   timeout         = 300
@@ -40,17 +40,31 @@ resource "helm_release" "argocd" {
           requests = { cpu = "50m", memory = "128Mi" }
           limits   = { cpu = "200m", memory = "256Mi" }
         }
+        ingress = {
+          enabled          = true
+          ingressClassName = "alb"
+          annotations = {
+            "alb.ingress.kubernetes.io/scheme"           = "internet-facing"
+            "alb.ingress.kubernetes.io/target-type"      = "ip"
+            "alb.ingress.kubernetes.io/listen-ports"     = "[{\"HTTP\":80}]"
+            "alb.ingress.kubernetes.io/backend-protocol" = "HTTP"
+            "alb.ingress.kubernetes.io/healthcheck-path" = "/healthz"
+          }
+          hostname = ""
+          paths    = ["/"]
+          pathType = "Prefix"
+        }
       }
       controller = {
         resources = {
-          requests = { cpu = "100m", memory = "256Mi" }
-          limits   = { cpu = "500m", memory = "512Mi" }
+          requests = { cpu = "100m", memory = "512Mi" }
+          limits   = { cpu = "500m", memory = "1Gi" }
         }
       }
       repoServer = {
         resources = {
-          requests = { cpu = "50m", memory = "128Mi" }
-          limits   = { cpu = "200m", memory = "256Mi" }
+          requests = { cpu = "100m", memory = "512Mi" }
+          limits   = { cpu = "500m", memory = "1Gi" }
         }
       }
       redis = {

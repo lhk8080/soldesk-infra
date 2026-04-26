@@ -20,10 +20,10 @@ data "aws_iam_role" "eso" {
 }
 
 provider "helm" {
-  kubernetes = {
+  kubernetes {
     host                   = data.aws_eks_cluster.main.endpoint
     cluster_ca_certificate = base64decode(data.aws_eks_cluster.main.certificate_authority[0].data)
-    exec = {
+    exec {
       api_version = "client.authentication.k8s.io/v1beta1"
       command     = "aws"
       args        = ["eks", "get-token", "--cluster-name", var.cluster_name, "--region", var.aws_region]
@@ -37,8 +37,8 @@ module "alb_controller" {
   cluster_name = var.cluster_name
   aws_region   = var.aws_region
   vpc_id       = data.aws_eks_cluster.main.vpc_config[0].vpc_id
-  role_arn     = data.aws_iam_role.alb_controller.arn
-  version      = var.alb_controller_version
+  role_arn      = data.aws_iam_role.alb_controller.arn
+  chart_version = var.alb_controller_version
 }
 
 module "keda" {
@@ -47,7 +47,7 @@ module "keda" {
   cluster_name           = var.cluster_name
   aws_region             = var.aws_region
   keda_operator_role_arn = data.aws_iam_role.keda_operator.arn
-  version                = var.keda_version
+  chart_version          = var.keda_version
 
   depends_on = [module.alb_controller]
 }
@@ -63,7 +63,7 @@ module "eso" {
 module "argocd" {
   source = "../modules/kubernetes/gitops/argocd"
 
-  version = var.argocd_version
+  chart_version = var.argocd_version
 
   depends_on = [module.alb_controller]
 }
