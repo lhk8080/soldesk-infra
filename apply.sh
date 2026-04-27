@@ -6,14 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # 필수 환경변수
 : "${AWS_REGION:=ap-northeast-2}"
 
-if [[ -z "${TF_STATE_BUCKET:-}" ]]; then
-  echo ">>> TF_STATE_BUCKET 미설정 — bootstrap apply 후 읽기"
-  cd "${SCRIPT_DIR}/bootstrap"
-  terraform init -reconfigure
-  terraform apply -auto-approve
-  TF_STATE_BUCKET=$(terraform output -raw s3_bucket_name)
-  echo "    TF_STATE_BUCKET=${TF_STATE_BUCKET}"
-fi
+: "${TF_STATE_BUCKET:=soldesk-tfstate}"
+echo ">>> TF_STATE_BUCKET=${TF_STATE_BUCKET}"
 
 INFRA_TFVARS="${SCRIPT_DIR}/infra/terraform.tfvars"
 K8S_TFVARS="${SCRIPT_DIR}/k8s/terraform.tfvars"
@@ -161,6 +155,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - Replace=true
 EOF
 
 # ── 완료 ─────────────────────────────────────────────────────
