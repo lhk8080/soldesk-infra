@@ -40,19 +40,9 @@ resource "helm_release" "argocd" {
           requests = { cpu = "50m", memory = "128Mi" }
           limits   = { cpu = "200m", memory = "256Mi" }
         }
+        # Ingress 는 별도 리소스로 관리 (host 없는 catch-all). 차트 ingress 는 hostname 비어있어도 argocd.example.com fallback 박힘.
         ingress = {
-          enabled          = true
-          ingressClassName = "alb"
-          annotations = {
-            "alb.ingress.kubernetes.io/scheme"           = "internet-facing"
-            "alb.ingress.kubernetes.io/target-type"      = "ip"
-            "alb.ingress.kubernetes.io/listen-ports"     = "[{\"HTTP\":80}]"
-            "alb.ingress.kubernetes.io/backend-protocol" = "HTTP"
-            "alb.ingress.kubernetes.io/healthcheck-path" = "/healthz"
-          }
-          hostname = ""
-          paths    = ["/"]
-          pathType = "Prefix"
+          enabled = false
         }
       }
       controller = {
@@ -78,4 +68,38 @@ resource "helm_release" "argocd" {
       dex            = { enabled = false }
     })
   ]
+}
+
+resource "kubernetes_ingress_v1" "argocd_server" {
+  depends_on = [helm_release.argocd]
+
+  metadata {
+    name      = "argocd-server"
+    namespace = var.namespace
+    annotations = {
+      "alb.ingress.kubernetes.io/scheme"           = "internet-facing"
+      "alb.ingress.kubernetes.io/target-type"      = "ip"
+      "alb.ingress.kubernetes.io/listen-ports"     = "[{\"HTTP\":80}]"
+      "alb.ingress.kubernetes.io/backend-protocol" = "HTTP"
+      "alb.ingress.kubernetes.io/healthcheck-path" = "/healthz"
+    }
+  }
+
+  spec {
+    ingress_class_name = "alb"
+    rule {
+      http {
+        path {
+          path      = "/"
+          path_type = "Prefix"
+          backend {
+            service {
+              name = "argocd-server"
+              port { number = 80 }
+            }
+          }
+        }
+      }
+    }
+  }
 }
