@@ -52,9 +52,9 @@ resource "aws_eks_addon" "ebs_csi" {
   ]
 
   timeouts {
-    create = "40m"
-    update = "40m"
-    delete = "40m"
+    create = "10m"
+    update = "10m"
+    delete = "10m"
   }
 }
 
