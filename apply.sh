@@ -155,7 +155,6 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-      - Replace=true
 EOF
 
 # ── 완료 ─────────────────────────────────────────────────────
