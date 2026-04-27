@@ -22,6 +22,13 @@ variable "alb_listener_arn" {
   default = ""
 }
 
+# Slack webhook (ArgoCD notifications)
+variable "argocd_slack_webhook" {
+  type      = string
+  sensitive = true
+  default   = "https://hooks.slack.com/services/dummy"
+}
+
 # EKS 노드 그룹
 variable "app_node_instance_types" {
   type    = list(string)

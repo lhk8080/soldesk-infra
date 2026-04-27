@@ -124,6 +124,8 @@ module "ssm" {
   cognito_user_pool_id = module.cognito.user_pool_id
   cognito_client_id    = module.cognito.user_pool_client_id
   sqs_url              = module.sqs.reservation_queue_url
+
+  argocd_slack_webhook = var.argocd_slack_webhook
 }
 
 # ── Edge ──────────────────────────────────────────────────────────────────────

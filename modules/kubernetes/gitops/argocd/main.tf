@@ -64,8 +64,58 @@ resource "helm_release" "argocd" {
         }
       }
       applicationSet = { enabled = false }
-      notifications  = { enabled = false }
       dex            = { enabled = false }
+      notifications = {
+        enabled = true
+        # Secret(argocd-notifications-secret) 은 ESO 가 SSM 에서 동기화하므로 차트가 생성하지 않음
+        secret = { create = false }
+        notifiers = {
+          "service.webhook.slack-deploys" = <<-EOT
+            url: $slack-webhook
+            headers:
+            - name: Content-Type
+              value: application/json
+          EOT
+        }
+        templates = {
+          "template.app-deployed" = <<-EOT
+            webhook:
+              slack-deploys:
+                method: POST
+                body: |
+                  {"text": ":white_check_mark: *{{.app.metadata.name}}* deployed (rev {{.app.status.sync.revision | slice 0 7}})"}
+          EOT
+          "template.app-sync-failed" = <<-EOT
+            webhook:
+              slack-deploys:
+                method: POST
+                body: |
+                  {"text": ":x: *{{.app.metadata.name}}* sync failed: {{.app.status.operationState.message}}"}
+          EOT
+          "template.app-health-degraded" = <<-EOT
+            webhook:
+              slack-deploys:
+                method: POST
+                body: |
+                  {"text": ":warning: *{{.app.metadata.name}}* health degraded ({{.app.status.health.status}})"}
+          EOT
+        }
+        triggers = {
+          "trigger.on-deployed" = <<-EOT
+            - when: app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+              oncePer: app.status.sync.revision
+              send: [app-deployed]
+          EOT
+          "trigger.on-sync-failed" = <<-EOT
+            - when: app.status.operationState.phase in ['Error', 'Failed']
+              send: [app-sync-failed]
+          EOT
+          "trigger.on-health-degraded" = <<-EOT
+            - when: app.status.health.status == 'Degraded'
+              send: [app-health-degraded]
+          EOT
+        }
+      }
     })
   ]
 }

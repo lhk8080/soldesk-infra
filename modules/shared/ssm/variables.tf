@@ -38,3 +38,9 @@ variable "alertmanager_slack_webhook" {
   sensitive = true
   default   = "https://hooks.slack.com/services/dummy"
 }
+
+variable "argocd_slack_webhook" {
+  type      = string
+  sensitive = true
+  default   = "https://hooks.slack.com/services/dummy"
+}

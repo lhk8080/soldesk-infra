@@ -85,6 +85,9 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "10"
+    notifications.argoproj.io/subscribe.on-deployed.slack-deploys: ""
+    notifications.argoproj.io/subscribe.on-sync-failed.slack-deploys: ""
+    notifications.argoproj.io/subscribe.on-health-degraded.slack-deploys: ""
 spec:
   project: default
   source:
@@ -131,6 +134,9 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "5"
+    notifications.argoproj.io/subscribe.on-deployed.slack-deploys: ""
+    notifications.argoproj.io/subscribe.on-sync-failed.slack-deploys: ""
+    notifications.argoproj.io/subscribe.on-health-degraded.slack-deploys: ""
 spec:
   project: default
   source:
@@ -155,6 +161,28 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+EOF
+
+# ArgoCD notifications 용 Slack webhook Secret 을 ESO 로 동기화
+# ClusterSecretStore(ticketing 차트가 생성) 가 준비되면 ESO 가 자동으로 채움
+kubectl apply -f - <<'EOF'
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: argocd-notifications-secret
+  namespace: argocd
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: aws-parameter-store
+  target:
+    name: argocd-notifications-secret
+    creationPolicy: Owner
+  data:
+    - secretKey: slack-webhook
+      remoteRef:
+        key: /ticketing/prod/ARGOCD_SLACK_WEBHOOK
 EOF
 
 # ── 완료 ─────────────────────────────────────────────────────

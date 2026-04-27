@@ -73,3 +73,9 @@ resource "aws_ssm_parameter" "alertmanager_slack_webhook" {
   type  = "SecureString"
   value = var.alertmanager_slack_webhook
 }
+
+resource "aws_ssm_parameter" "argocd_slack_webhook" {
+  name  = "${local.prefix}/ARGOCD_SLACK_WEBHOOK"
+  type  = "SecureString"
+  value = var.argocd_slack_webhook
+}
