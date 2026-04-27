@@ -137,7 +137,7 @@ cd soldesk-infra
 #   alb_listener_arn = ""        # 1차 apply 시점에는 비워둠
 #   cloudfront_domain = ""       # 자동으로 채워짐 (apply.sh pass2)
 
-./apply.sh
+./script/apply.sh
 ```
 
 `apply.sh` 단계:
@@ -175,7 +175,7 @@ aws elbv2 describe-listeners --region ap-northeast-2 \
 
 # infra/terraform.tfvars 의 alb_listener_arn 에 위 값 기입
 cd soldesk-infra
-./apply.sh
+./script/apply.sh
 ```
 
 이 시점부터 `https://<cloudfront_domain>` 에서 `/api/*` 요청까지 정상 동작.
@@ -210,7 +210,7 @@ kubectl get ingress -A
 
 ```bash
 cd soldesk-infra
-./destroy.sh
+./script/destroy.sh
 ```
 
 순서:
