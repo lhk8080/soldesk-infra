@@ -62,7 +62,12 @@ resource "aws_iam_role_policy" "github_actions" {
       },
       {
         Effect   = "Allow"
-        Action   = ["cloudfront:CreateInvalidation"]
+        Action   = ["s3:ListBucket"]
+        Resource = var.s3_frontend_arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["cloudfront:CreateInvalidation", "cloudfront:ListDistributions"]
         Resource = "*"
       }
     ]
