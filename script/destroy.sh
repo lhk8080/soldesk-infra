@@ -71,7 +71,10 @@ terraform init -reconfigure \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="region=${AWS_REGION}" \
   -backend-config="key=infra/terraform.tfstate"
-terraform destroy -var-file="${INFRA_TFVARS}" -auto-approve
+terraform destroy \
+  -var-file="${INFRA_TFVARS}" \
+  -var="argocd_slack_webhook=destroy-placeholder" \
+  -auto-approve
 
 # ── 3. tfvars 의 런타임 의존 값 초기화 ─────────────────────
 # alb_listener_arn / cloudfront_domain 은 클러스터 생성 후 채우는 값.

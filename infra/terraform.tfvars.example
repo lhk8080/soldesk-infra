@@ -12,6 +12,9 @@ cloudfront_domain = ""
 # 앱 배포 후 ALB listener ARN 확인 후 채워서 재apply.
 alb_listener_arn = ""
 
+# ArgoCD notifications 용 Slack webhook (필수)
+argocd_slack_webhook = "https://hooks.slack.com/services/XXX/YYY/ZZZ"
+
 # EKS 노드 그룹
 app_node_instance_types = ["t3.medium"]
 app_node_desired_size   = 2

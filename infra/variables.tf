@@ -22,11 +22,10 @@ variable "alb_listener_arn" {
   default = ""
 }
 
-# Slack webhook (ArgoCD notifications)
+# Slack webhook (ArgoCD notifications) — tfvars 에 반드시 박아야 함 (default 없음)
 variable "argocd_slack_webhook" {
   type      = string
   sensitive = true
-  default   = "https://hooks.slack.com/services/dummy"
 }
 
 # EKS 노드 그룹
