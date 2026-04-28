@@ -163,6 +163,27 @@ spec:
       - ServerSideApply=true
 EOF
 
+kubectl apply -f - <<EOF
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-addons
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/lhk8080/soldesk-k8s.git
+    targetRevision: HEAD
+    path: argocd
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+EOF
+
 # ArgoCD notifications 용 Slack webhook Secret 을 ESO 로 동기화
 # ClusterSecretStore(ticketing 차트가 생성) 가 준비되면 ESO 가 자동으로 채움
 kubectl apply -f - <<'EOF'
