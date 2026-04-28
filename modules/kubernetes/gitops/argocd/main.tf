@@ -83,7 +83,7 @@ resource "helm_release" "argocd" {
               slack-deploys:
                 method: POST
                 body: |
-                  {"text": ":white_check_mark: *{{.app.metadata.name}}* deployed (rev {{.app.status.sync.revision | slice 0 7}})"}
+                  {"text": ":white_check_mark: *{{.app.metadata.name}}* deployed (rev {{.app.status.sync.revision | trunc 7}})"}
           EOT
           "template.app-sync-failed" = <<-EOT
             webhook:
