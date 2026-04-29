@@ -92,7 +92,10 @@ resource "aws_iam_role" "sqs_access" {
       Condition = {
         StringEquals = {
           "${local.oidc_issuer}:aud" = "sts.amazonaws.com"
-          "${local.oidc_issuer}:sub" = "system:serviceaccount:ticketing:sqs-access-sa"
+          "${local.oidc_issuer}:sub" = [
+            "system:serviceaccount:ticketing:sqs-access-sa",
+            "system:serviceaccount:dev-ticketing:sqs-access-sa",
+          ]
         }
       }
     }]
@@ -133,7 +136,10 @@ resource "aws_iam_role" "db_backup" {
       Condition = {
         StringEquals = {
           "${local.oidc_issuer}:aud" = "sts.amazonaws.com"
-          "${local.oidc_issuer}:sub" = "system:serviceaccount:ticketing:db-backup-sa"
+          "${local.oidc_issuer}:sub" = [
+            "system:serviceaccount:ticketing:db-backup-sa",
+            "system:serviceaccount:dev-ticketing:db-backup-sa",
+          ]
         }
       }
     }]
