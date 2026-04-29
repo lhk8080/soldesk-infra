@@ -3,6 +3,11 @@ resource "random_password" "db" {
   special = false
 }
 
+resource "random_password" "db_dev" {
+  length  = 20
+  special = false
+}
+
 resource "random_password" "redis" {
   length  = 20
   special = false
@@ -36,7 +41,7 @@ module "compute" {
   app_node_min_size       = var.app_node_min_size
   app_node_max_size       = var.app_node_max_size
 
-  sqs_queue_arns             = [module.sqs.reservation_queue_arn]
+  sqs_queue_arns             = [module.sqs.reservation_queue_arn, module.sqs_dev.reservation_queue_arn]
   assets_bucket_arn          = module.s3.assets_bucket_arn
   enable_db_backup_to_assets = true
 }
@@ -70,6 +75,11 @@ module "elasticache" {
 module "sqs" {
   source = "../modules/messaging/sqs"
   env    = var.env
+}
+
+module "sqs_dev" {
+  source = "../modules/messaging/sqs"
+  env    = "dev"
 }
 
 # ── Identity ──────────────────────────────────────────────────────────────────
@@ -124,6 +134,25 @@ module "ssm" {
   cognito_user_pool_id = module.cognito.user_pool_id
   cognito_client_id    = module.cognito.user_pool_client_id
   sqs_url              = module.sqs.reservation_queue_url
+
+  argocd_slack_webhook = var.argocd_slack_webhook
+}
+
+# dev 환경: 같은 RDS 안에 soldesk_dev DB(수동 생성), 같은 Redis/Cognito 공유, SQS 만 별도
+module "ssm_dev" {
+  source = "../modules/shared/ssm"
+
+  env            = "dev"
+  db_user        = "soldesk_dev_user"
+  db_password    = random_password.db_dev.result
+  redis_password = random_password.redis.result
+
+  db_writer_endpoint   = module.rds.writer_endpoint
+  db_reader_endpoint   = module.rds.reader_endpoint != null ? module.rds.reader_endpoint : module.rds.writer_endpoint
+  redis_endpoint       = module.elasticache.redis_endpoint
+  cognito_user_pool_id = module.cognito.user_pool_id
+  cognito_client_id    = module.cognito.user_pool_client_id
+  sqs_url              = module.sqs_dev.reservation_queue_url
 
   argocd_slack_webhook = var.argocd_slack_webhook
 }
