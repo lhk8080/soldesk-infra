@@ -1,5 +1,5 @@
 locals {
-  prefix = "/${var.app_name}/prod"
+  prefix = "/${var.app_name}/${var.env}"
 }
 
 resource "aws_ssm_parameter" "db_writer_host" {

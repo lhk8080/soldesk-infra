@@ -61,6 +61,7 @@ SQS_ACCESS_ROLE_ARN=$(terraform output -raw sqs_access_role_arn)
 DB_BACKUP_ROLE_ARN=$(terraform output -raw db_backup_role_arn)
 ESO_ROLE_ARN=$(terraform output -raw eso_role_arn)
 SQS_QUEUE_URL=$(terraform output -raw sqs_reservation_url)
+SQS_QUEUE_URL_DEV=$(terraform output -raw sqs_reservation_url_dev)
 ASSETS_BUCKET=$(terraform output -raw assets_bucket_id)
 
 # ArgoCD server 준비 대기
@@ -69,16 +70,8 @@ kubectl wait --namespace argocd \
   --selector=app.kubernetes.io/name=argocd-server \
   --timeout=180s
 
-# 기존 Application 이 있으면 image tag 보존, 없으면 seed-pending
-WAS_TAG=$(kubectl get application ticketing -n argocd \
-  -o jsonpath='{.spec.source.helm.parameters[?(@.name=="image.was.tag")].value}' \
-  2>/dev/null || echo "seed-pending")
-WAS_TAG="${WAS_TAG:-seed-pending}"
-
-WORKER_TAG=$(kubectl get application ticketing -n argocd \
-  -o jsonpath='{.spec.source.helm.parameters[?(@.name=="image.worker.tag")].value}' \
-  2>/dev/null || echo "seed-pending")
-WORKER_TAG="${WORKER_TAG:-seed-pending}"
+# image.was.tag, image.worker.tag 는 environments/<env>/ticketing-values.yaml 이 source of truth
+# (GHA 가 빌드 후 sed + commit + push 로 갱신 → ArgoCD 자동 sync)
 
 kubectl apply -f - <<EOF
 apiVersion: argoproj.io/v1alpha1
@@ -100,12 +93,8 @@ spec:
       parameters:
         - name: image.was.repository
           value: "${ECR_WAS_URL}"
-        - name: image.was.tag
-          value: "${WAS_TAG}"
         - name: image.worker.repository
           value: "${ECR_WORKER_URL}"
-        - name: image.worker.tag
-          value: "${WORKER_TAG}"
         - name: serviceAccount.sqsAccessRoleArn
           value: "${SQS_ACCESS_ROLE_ARN}"
         - name: serviceAccount.dbBackupRoleArn
@@ -117,6 +106,46 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: ticketing
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+EOF
+
+kubectl apply -f - <<EOF
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ticketing-dev
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/lhk8080/soldesk-k8s.git
+    targetRevision: HEAD
+    path: charts/ticketing
+    helm:
+      valueFiles:
+        - ../../environments/dev/ticketing-values.yaml
+      parameters:
+        - name: image.was.repository
+          value: "${ECR_WAS_URL}"
+        - name: image.worker.repository
+          value: "${ECR_WORKER_URL}"
+        - name: serviceAccount.sqsAccessRoleArn
+          value: "${SQS_ACCESS_ROLE_ARN}"
+        - name: serviceAccount.dbBackupRoleArn
+          value: "${DB_BACKUP_ROLE_ARN}"
+        - name: config.sqsQueueUrl
+          value: "${SQS_QUEUE_URL_DEV}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dev-ticketing
   syncPolicy:
     automated:
       prune: true

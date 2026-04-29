@@ -14,6 +14,7 @@ output "ecr_worker_svc_url"    { value = module.ecr.worker_svc_url }
 
 output "frontend_bucket_id"   { value = module.s3.frontend_bucket_id }
 output "sqs_reservation_url"  { value = module.sqs.reservation_queue_url }
+output "sqs_reservation_url_dev" { value = module.sqs_dev.reservation_queue_url }
 
 output "github_actions_role_arn" { value = module.cicd.github_actions_role_arn }
 

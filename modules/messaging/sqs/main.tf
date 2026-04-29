@@ -1,5 +1,9 @@
+locals {
+  name_suffix = var.env == "prod" ? "" : "-${var.env}"
+}
+
 resource "aws_sqs_queue" "reservation_dlq" {
-  name                        = "ticketing-reservation-dlq.fifo"
+  name                        = "ticketing-reservation-dlq${local.name_suffix}.fifo"
   fifo_queue                  = true
   content_based_deduplication = true
   message_retention_seconds   = 1209600
@@ -8,7 +12,7 @@ resource "aws_sqs_queue" "reservation_dlq" {
 }
 
 resource "aws_sqs_queue" "reservation" {
-  name                        = "ticketing-reservation.fifo"
+  name                        = "ticketing-reservation${local.name_suffix}.fifo"
   fifo_queue                  = true
   content_based_deduplication = true
   # DB 커밋 + Redis 저장 + 캐시 무효화까지 여유 — 재전달 시 중복 위험 완화
