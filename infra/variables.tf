@@ -6,6 +6,10 @@ variable "aws_account" {
 }
 
 variable "cluster_name"          { type = string }
+variable "domain_name" {
+  type        = string
+  description = "Route53/ACM에 사용할 루트 도메인 (예: hk99.shop)"
+}
 variable "cognito_domain_prefix" { type = string }
 variable "github_repo" {
   type        = string

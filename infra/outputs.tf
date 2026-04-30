@@ -22,3 +22,10 @@ output "assets_bucket_id"      { value = module.s3.assets_bucket_id }
 output "sqs_access_role_arn"   { value = module.compute.sqs_access_role_arn }
 output "db_backup_role_arn"    { value = module.compute.db_backup_role_arn }
 output "eso_role_arn"          { value = module.compute.eso_role_arn }
+
+output "route53_name_servers" {
+  description = "가비아 네임서버 설정에 입력할 NS 4개"
+  value       = module.route53.name_servers
+}
+output "acm_alb_certificate_arn"        { value = module.acm_alb.certificate_arn }
+output "acm_cloudfront_certificate_arn" { value = module.acm_cloudfront.certificate_arn }

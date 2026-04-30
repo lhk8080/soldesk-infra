@@ -159,6 +159,26 @@ module "ssm_dev" {
 
 # ── Edge ──────────────────────────────────────────────────────────────────────
 
+module "route53" {
+  source      = "../modules/edge/route53"
+  domain_name = var.domain_name
+}
+
+module "acm_alb" {
+  source                    = "../modules/edge/acm"
+  domain_name               = var.domain_name
+  subject_alternative_names = ["*.${var.domain_name}"]
+  zone_id                   = module.route53.zone_id
+}
+
+module "acm_cloudfront" {
+  source                    = "../modules/edge/acm"
+  providers                 = { aws = aws.us_east_1 }
+  domain_name               = var.domain_name
+  subject_alternative_names = ["*.${var.domain_name}"]
+  zone_id                   = module.route53.zone_id
+}
+
 module "waf" {
   source = "../modules/edge/waf"
   providers = { aws.us_east_1 = aws.us_east_1 }
