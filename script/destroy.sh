@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 : "${AWS_REGION:=ap-northeast-2}"
 
-: "${TF_STATE_BUCKET:=soldesk-tfstate}"
+: "${TF_STATE_BUCKET:=sol-ticketing-tfstate}"
 echo ">>> TF_STATE_BUCKET=${TF_STATE_BUCKET}"
 
 INFRA_TFVARS="${SCRIPT_DIR}/infra/terraform.tfvars"
