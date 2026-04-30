@@ -1,7 +1,7 @@
 variable "project" {
   description = "Project name"
   type        = string
-  default     = "soldesk"
+  default     = "sol-ticketing"
 }
 
 variable "region" {
