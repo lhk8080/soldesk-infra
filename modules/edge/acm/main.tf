@@ -18,11 +18,12 @@ resource "aws_route53_record" "validation" {
     }
   }
 
-  zone_id = var.zone_id
-  name    = each.value.name
-  type    = each.value.type
-  records = [each.value.record]
-  ttl     = 60
+  zone_id         = var.zone_id
+  name            = each.value.name
+  type            = each.value.type
+  records         = [each.value.record]
+  ttl             = 60
+  allow_overwrite = true  # ALB/CloudFront 양쪽 인증서가 같은 도메인이면 동일 CNAME → 덮어쓰기 허용
 }
 
 # 검증 완료까지 기다림 (이게 끝나야 cert가 ALB/CloudFront에 붙을 수 있음)
