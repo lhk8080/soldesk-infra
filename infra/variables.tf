@@ -32,6 +32,12 @@ variable "argocd_slack_webhook" {
   sensitive = true
 }
 
+# Slack webhook (Alertmanager 알람) — 서버 이상 시 슬랙 알림
+variable "alertmanager_slack_webhook" {
+  type      = string
+  sensitive = true
+}
+
 # EKS 노드 그룹
 variable "app_node_instance_types" {
   type    = list(string)

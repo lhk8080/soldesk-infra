@@ -22,3 +22,13 @@ variable "alb_controller_version" {
   type    = string
   default = "1.8.1"
 }
+
+variable "domain_name" {
+  type        = string
+  description = "infra 모듈에서 출력된 루트 도메인 (argocd/grafana 서브도메인 베이스)"
+}
+
+variable "waf_regional_acl_arn" {
+  type        = string
+  description = "infra 모듈에서 생성한 REGIONAL WAFv2 ACL ARN"
+}

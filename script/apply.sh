@@ -21,7 +21,15 @@ terraform init -reconfigure \
   -backend-config="region=${AWS_REGION}" \
   -backend-config="key=infra/terraform.tfstate"
 
-terraform apply -var-file="${INFRA_TFVARS}" -auto-approve
+# 재실행 보존: state 에 이미 있는 alb_listener_arn 을 읽어 다시 주입
+# (없으면 빈 문자열 — 첫 apply 때는 ALB 가 아직 없음)
+EXISTING_LISTENER_ARN=$(terraform output -raw alb_listener_arn 2>/dev/null || true)
+EXISTING_LISTENER_ARN="${EXISTING_LISTENER_ARN:-}"
+[[ -n "${EXISTING_LISTENER_ARN}" ]] && echo ">>> 기존 alb_listener_arn 보존: ${EXISTING_LISTENER_ARN}"
+
+terraform apply -var-file="${INFRA_TFVARS}" \
+  -var="alb_listener_arn=${EXISTING_LISTENER_ARN}" \
+  -auto-approve
 
 # ── 2. infra (2차): CloudFront domain → Cognito callback URL ─
 echo ">>> [2/3] infra apply (pass 2: cloudfront_domain 갱신)"
@@ -29,9 +37,12 @@ CF_DOMAIN=$(terraform output -raw cloudfront_domain)
 terraform apply \
   -var-file="${INFRA_TFVARS}" \
   -var="cloudfront_domain=${CF_DOMAIN}" \
+  -var="alb_listener_arn=${EXISTING_LISTENER_ARN}" \
   -auto-approve
 
 CLUSTER_NAME=$(terraform output -raw cluster_name)
+DOMAIN_NAME=$(terraform output -raw domain_name)
+WAF_REGIONAL_ARN=$(terraform output -raw waf_regional_acl_arn)
 
 # ── 3. k8s addons ────────────────────────────────────────────
 echo ">>> [3/3] k8s addons apply (EKS cluster 준비 대기 중...)"
@@ -49,7 +60,10 @@ terraform init -reconfigure \
   -backend-config="region=${AWS_REGION}" \
   -backend-config="key=k8s/terraform.tfstate"
 
-terraform apply -var-file="${K8S_TFVARS}" -auto-approve
+terraform apply -var-file="${K8S_TFVARS}" \
+  -var="domain_name=${DOMAIN_NAME}" \
+  -var="waf_regional_acl_arn=${WAF_REGIONAL_ARN}" \
+  -auto-approve
 
 # ── 4. ArgoCD Application 등록 ───────────────────────────────
 echo ">>> [4/4] ArgoCD Application 등록"
@@ -143,6 +157,10 @@ spec:
           value: "${DB_BACKUP_ROLE_ARN}"
         - name: config.sqsQueueUrl
           value: "${SQS_QUEUE_URL_DEV}"
+        - name: ingress.host
+          value: "dev.${DOMAIN_NAME}"
+        - name: ingress.wafAclArn
+          value: "${WAF_REGIONAL_ARN}"
   destination:
     server: https://kubernetes.default.svc
     namespace: dev-ticketing
@@ -177,6 +195,10 @@ spec:
           value: "${ESO_ROLE_ARN}"
         - name: awsRegion
           value: "${AWS_REGION}"
+        - name: grafana.host
+          value: "grafana.${DOMAIN_NAME}"
+        - name: grafana.wafAclArn
+          value: "${WAF_REGIONAL_ARN}"
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
@@ -189,14 +211,15 @@ spec:
       - ServerSideApply=true
 EOF
 
+# ── 5. ALB listener 자동 연결 (apply-alb.sh 인라인) ──────────
+echo ""
+echo ">>> [5/5] ticketing(prod) ALB 생성 대기 후 listener ARN 주입"
+"${SCRIPT_DIR}/script/apply-alb.sh"
+
 # ── 완료 ─────────────────────────────────────────────────────
 echo ""
 echo "=== Apply 완료 ==="
 echo ""
-echo "[다음 단계] 앱 배포 후 API Gateway 연결:"
-echo "  1. ArgoCD로 앱 배포 → ALB Controller가 ALB 생성"
-echo "  2. ALB listener ARN 확인:"
-echo "     aws elbv2 describe-listeners --load-balancer-arn \$(aws elbv2 describe-load-balancers --query 'LoadBalancers[0].LoadBalancerArn' --output text)"
-echo "  3. infra/ 재apply:"
-echo "     cd ${SCRIPT_DIR}/infra"
-echo "     terraform apply -var-file=terraform.tfvars -var='cloudfront_domain=${CF_DOMAIN}' -var='alb_listener_arn=<ARN>' -auto-approve"
+echo "[다음 단계] Ops 도메인(argocd / grafana / dev) Route53 등록:"
+echo "  ${SCRIPT_DIR}/script/seed-ops-dns.sh"
+echo "  (ArgoCD 가 ops Ingress 들을 sync 한 뒤 실행)"

@@ -15,3 +15,18 @@ variable "root_password_bcrypt" {
   sensitive = true
   default   = "$2a$10$0Sn244C61FveDwgHGeC2qe/8TAcl7j6NN2MpQe9rDSFZwYp1sk4i6"
 }
+
+variable "domain_name" {
+  type        = string
+  description = "argocd.<domain_name> 호스트로 노출"
+}
+
+variable "waf_acl_arn" {
+  type        = string
+  description = "ALB controller 가 ALB 에 연결할 REGIONAL WAFv2 ACL ARN"
+}
+
+variable "ingress_group_name" {
+  type    = string
+  default = "soldesk-ops"
+}

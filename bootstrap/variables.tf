@@ -19,3 +19,8 @@ variable "github_repo" {
   description = "GitHub repository name"
   type        = string
 }
+
+variable "domain_name" {
+  description = "Route53 호스티드존 루트 도메인 (예: hk99.shop)"
+  type        = string
+}

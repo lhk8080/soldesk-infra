@@ -90,6 +90,8 @@ module "argocd" {
   source = "../modules/kubernetes/gitops/argocd"
 
   chart_version = var.argocd_version
+  domain_name   = var.domain_name
+  waf_acl_arn   = var.waf_regional_acl_arn
 
   depends_on = [module.alb_controller]
 }

@@ -1,4 +1,5 @@
 # 두 번째 apply 때 values.tfvars에 채워넣을 값들
+output "env"                  { value = var.env }
 output "cloudfront_domain"    { value = module.cloudfront.cloudfront_domain }
 output "api_endpoint_host"    { value = module.api_gateway.api_endpoint_host }
 
@@ -23,9 +24,10 @@ output "sqs_access_role_arn"   { value = module.compute.sqs_access_role_arn }
 output "db_backup_role_arn"    { value = module.compute.db_backup_role_arn }
 output "eso_role_arn"          { value = module.compute.eso_role_arn }
 
-output "route53_name_servers" {
-  description = "가비아 네임서버 설정에 입력할 NS 4개"
-  value       = module.route53.name_servers
-}
 output "acm_alb_certificate_arn"        { value = module.acm_alb.certificate_arn }
 output "acm_cloudfront_certificate_arn" { value = module.acm_cloudfront.certificate_arn }
+output "waf_regional_acl_arn"           { value = module.waf_regional.waf_acl_arn }
+output "domain_name"                    { value = var.domain_name }
+
+# 재apply 시 보존용 — apply.sh 가 기존 값을 읽어 다시 -var 로 주입
+output "alb_listener_arn"               { value = var.alb_listener_arn }

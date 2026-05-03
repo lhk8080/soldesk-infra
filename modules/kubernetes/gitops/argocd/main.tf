@@ -132,12 +132,16 @@ resource "kubernetes_ingress_v1" "argocd_server" {
       "alb.ingress.kubernetes.io/listen-ports"     = "[{\"HTTP\":80}]"
       "alb.ingress.kubernetes.io/backend-protocol" = "HTTP"
       "alb.ingress.kubernetes.io/healthcheck-path" = "/healthz"
+      "alb.ingress.kubernetes.io/group.name"       = var.ingress_group_name
+      "alb.ingress.kubernetes.io/group.order"      = "10"
+      "alb.ingress.kubernetes.io/wafv2-acl-arn"    = var.waf_acl_arn
     }
   }
 
   spec {
     ingress_class_name = "alb"
     rule {
+      host = "argocd.${var.domain_name}"
       http {
         path {
           path      = "/"

@@ -135,7 +135,8 @@ module "ssm" {
   cognito_client_id    = module.cognito.user_pool_client_id
   sqs_url              = module.sqs.reservation_queue_url
 
-  argocd_slack_webhook = var.argocd_slack_webhook
+  argocd_slack_webhook       = var.argocd_slack_webhook
+  alertmanager_slack_webhook = var.alertmanager_slack_webhook
 }
 
 # dev 환경: 같은 RDS 안에 soldesk_dev DB(수동 생성), 같은 Redis/Cognito 공유, SQS 만 별도
@@ -154,21 +155,46 @@ module "ssm_dev" {
   cognito_client_id    = module.cognito.user_pool_client_id
   sqs_url              = module.sqs_dev.reservation_queue_url
 
-  argocd_slack_webhook = var.argocd_slack_webhook
+  argocd_slack_webhook       = var.argocd_slack_webhook
+  alertmanager_slack_webhook = var.alertmanager_slack_webhook
 }
 
 # ── Edge ──────────────────────────────────────────────────────────────────────
 
-module "route53" {
-  source      = "../modules/edge/route53"
-  domain_name = var.domain_name
+data "aws_route53_zone" "main" {
+  name = var.domain_name
+}
+
+# hk99.shop → CloudFront alias (CloudFront 고정 zone id: Z2FDTNDATAQYW2)
+resource "aws_route53_record" "root" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = var.domain_name
+  type    = "A"
+
+  alias {
+    name                   = module.cloudfront.cloudfront_domain
+    zone_id                = "Z2FDTNDATAQYW2"
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "www" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "www.${var.domain_name}"
+  type    = "A"
+
+  alias {
+    name                   = module.cloudfront.cloudfront_domain
+    zone_id                = "Z2FDTNDATAQYW2"
+    evaluate_target_health = false
+  }
 }
 
 module "acm_alb" {
   source                    = "../modules/edge/acm"
   domain_name               = var.domain_name
   subject_alternative_names = ["*.${var.domain_name}"]
-  zone_id                   = module.route53.zone_id
+  zone_id                   = data.aws_route53_zone.main.zone_id
 }
 
 module "acm_cloudfront" {
@@ -176,13 +202,18 @@ module "acm_cloudfront" {
   providers                 = { aws = aws.us_east_1 }
   domain_name               = var.domain_name
   subject_alternative_names = ["*.${var.domain_name}"]
-  zone_id                   = module.route53.zone_id
+  zone_id                   = data.aws_route53_zone.main.zone_id
 }
 
 module "waf" {
   source = "../modules/edge/waf"
   providers = { aws.us_east_1 = aws.us_east_1 }
   env = var.env
+}
+
+module "waf_regional" {
+  source = "../modules/edge/waf-regional"
+  env    = var.env
 }
 
 module "cloudfront" {
@@ -194,6 +225,9 @@ module "cloudfront" {
   frontend_domain           = module.s3.frontend_bucket_regional_domain
   waf_acl_arn               = module.waf.waf_acl_arn
   api_gateway_endpoint_host = var.alb_listener_arn != "" ? module.api_gateway.api_endpoint_host : ""
+
+  aliases             = [var.domain_name, "www.${var.domain_name}"]
+  acm_certificate_arn = module.acm_cloudfront.certificate_arn
 }
 
 module "api_gateway" {

@@ -13,6 +13,8 @@ resource "aws_cloudfront_distribution" "main" {
   price_class         = "PriceClass_200"
   wait_for_deployment = true
 
+  aliases = var.aliases
+
   # destroy 전 distribution 비활성화 + 전파 대기 — 없으면 OAC 삭제 시 "OriginAccessControlInUse" 에러
   provisioner "local-exec" {
     when        = destroy
@@ -139,7 +141,10 @@ with open(sys.argv[1], 'w') as f:
   }
 
   viewer_certificate {
-    cloudfront_default_certificate = true
+    cloudfront_default_certificate = length(var.aliases) == 0
+    acm_certificate_arn            = length(var.aliases) > 0 ? var.acm_certificate_arn : null
+    ssl_support_method             = length(var.aliases) > 0 ? "sni-only" : null
+    minimum_protocol_version       = length(var.aliases) > 0 ? "TLSv1.2_2021" : null
   }
 
   tags = { Name = "ticketing-cloudfront", Environment = var.env }

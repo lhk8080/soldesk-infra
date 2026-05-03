@@ -81,7 +81,10 @@ resource "aws_dynamodb_table" "tflock" {
 resource "aws_iam_openid_connect_provider" "github" {
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = ["ffffffffffffffffffffffffffffffffffffffff"]
+  thumbprint_list = [
+    "1c58a3a8518e8759bf075b76b750d4f2df264fcd",
+    "6938fd4d98bab03faadb97b34396831e3780aea1",
+  ]
 
   tags = {
     Name    = "${var.project}-github-oidc"
@@ -129,4 +132,22 @@ resource "aws_iam_role" "github_actions" {
 resource "aws_iam_role_policy_attachment" "github_actions" {
   role       = aws_iam_role.github_actions.name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
+# -----------------------------------------------------------------------------
+# Route53 Hosted Zone
+# 도메인은 인프라보다 수명이 길어 bootstrap 에서 관리.
+# destroy 시 NS 재등록(가비아) 을 피하기 위해 prevent_destroy.
+# -----------------------------------------------------------------------------
+resource "aws_route53_zone" "main" {
+  name = var.domain_name
+
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  tags = {
+    Name    = var.domain_name
+    Project = var.project
+  }
 }
