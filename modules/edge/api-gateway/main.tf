@@ -110,6 +110,7 @@ resource "aws_apigatewayv2_route" "api_public" {
     "GET /api/read/concert/{concert_id}/booking-bootstrap",
     "GET /api/read/concert/{concert_id}/booking-holds",
     "GET /api/read/health",
+    "GET /api/read/version",
     "GET /api/read/waiting-room/{proxy+}",
     "GET /api/read/booking/{proxy+}",
     "POST /api/write/concerts/{show_id}/waiting-room/enter",
