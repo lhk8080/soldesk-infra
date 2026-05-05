@@ -83,27 +83,27 @@ resource "helm_release" "argocd" {
               slack-deploys:
                 method: POST
                 body: |
-                  {"text": ":white_check_mark: *{{.app.metadata.name}}* deployed (rev {{.app.status.sync.revision | trunc 7}})"}
+                  {"text": ":white_check_mark: *{{.app.metadata.name}}* 배포 완료\n• 네임스페이스: `{{.app.spec.destination.namespace}}`\n• 커밋: `{{.app.status.sync.revision | trunc 7}}` (soldesk-k8s commit sha)"}
           EOT
           "template.app-sync-failed" = <<-EOT
             webhook:
               slack-deploys:
                 method: POST
                 body: |
-                  {"text": ":x: *{{.app.metadata.name}}* sync failed: {{.app.status.operationState.message}}"}
+                  {"text": ":x: *{{.app.metadata.name}}* 동기화 실패\n• 네임스페이스: `{{.app.spec.destination.namespace}}`\n• 커밋: `{{.app.status.sync.revision | trunc 7}}`\n• 사유: {{.app.status.operationState.message}}"}
           EOT
           "template.app-health-degraded" = <<-EOT
             webhook:
               slack-deploys:
                 method: POST
                 body: |
-                  {"text": ":warning: *{{.app.metadata.name}}* health degraded ({{.app.status.health.status}})"}
+                  {"text": ":warning: *{{.app.metadata.name}}* 헬스 저하\n• 네임스페이스: `{{.app.spec.destination.namespace}}`\n• 상태: {{.app.status.health.status}}\n• 커밋: `{{.app.status.sync.revision | trunc 7}}`"}
           EOT
         }
         triggers = {
           "trigger.on-deployed" = <<-EOT
             - when: app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
-              oncePer: app.status.sync.revision
+              oncePer: app.status.operationState.finishedAt
               send: [app-deployed]
           EOT
           "trigger.on-sync-failed" = <<-EOT

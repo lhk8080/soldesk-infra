@@ -25,7 +25,19 @@ terraform init -reconfigure \
 # (없으면 빈 문자열 — 첫 apply 때는 ALB 가 아직 없음)
 EXISTING_LISTENER_ARN=$(terraform output -raw alb_listener_arn 2>/dev/null || true)
 EXISTING_LISTENER_ARN="${EXISTING_LISTENER_ARN:-}"
-[[ -n "${EXISTING_LISTENER_ARN}" ]] && echo ">>> 기존 alb_listener_arn 보존: ${EXISTING_LISTENER_ARN}"
+
+# state 에 ARN 이 남아있어도 AWS 에 실재하지 않으면 비움 (stale state 방어)
+# 안 비우면 API GW integration 이 죽은 listener 로 생성 시도 → 400 BadRequest
+if [[ -n "${EXISTING_LISTENER_ARN}" ]]; then
+  if aws elbv2 describe-listeners \
+       --listener-arns "${EXISTING_LISTENER_ARN}" \
+       --region "${AWS_REGION}" >/dev/null 2>&1; then
+    echo ">>> 기존 alb_listener_arn 보존: ${EXISTING_LISTENER_ARN}"
+  else
+    echo ">>> state 의 alb_listener_arn 이 AWS 에 없음 → 비우고 첫-실행 모드로 진행"
+    EXISTING_LISTENER_ARN=""
+  fi
+fi
 
 terraform apply -var-file="${INFRA_TFVARS}" \
   -var="alb_listener_arn=${EXISTING_LISTENER_ARN}" \
@@ -95,6 +107,9 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "10"
+    notifications.argoproj.io/subscribe.on-deployed.slack-deploys: ""
+    notifications.argoproj.io/subscribe.on-sync-failed.slack-deploys: ""
+    notifications.argoproj.io/subscribe.on-health-degraded.slack-deploys: ""
 spec:
   project: default
   source:
@@ -120,6 +135,24 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: ticketing
+  # HPA(KEDA) 가 관리하는 burst Deployment 의 replicas 는 ArgoCD 가 드리프트로 보지 않음.
+  # 안 그러면 selfHeal 이 차트 기준값으로 되돌려 HPA 와 충돌(0↔N oscillation) 발생.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: worker-svc-burst
+      jsonPointers:
+        - /spec/replicas
+    - group: apps
+      kind: Deployment
+      name: read-api-burst
+      jsonPointers:
+        - /spec/replicas
+    - group: apps
+      kind: Deployment
+      name: write-api-burst
+      jsonPointers:
+        - /spec/replicas
   syncPolicy:
     automated:
       prune: true
@@ -137,6 +170,9 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "10"
+    notifications.argoproj.io/subscribe.on-deployed.slack-deploys: ""
+    notifications.argoproj.io/subscribe.on-sync-failed.slack-deploys: ""
+    notifications.argoproj.io/subscribe.on-health-degraded.slack-deploys: ""
 spec:
   project: default
   source:
@@ -164,6 +200,22 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: dev-ticketing
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: worker-svc-burst
+      jsonPointers:
+        - /spec/replicas
+    - group: apps
+      kind: Deployment
+      name: read-api-burst
+      jsonPointers:
+        - /spec/replicas
+    - group: apps
+      kind: Deployment
+      name: write-api-burst
+      jsonPointers:
+        - /spec/replicas
   syncPolicy:
     automated:
       prune: true
@@ -181,6 +233,9 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "5"
+    notifications.argoproj.io/subscribe.on-deployed.slack-deploys: ""
+    notifications.argoproj.io/subscribe.on-sync-failed.slack-deploys: ""
+    notifications.argoproj.io/subscribe.on-health-degraded.slack-deploys: ""
 spec:
   project: default
   source:
@@ -202,6 +257,15 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
+  # ESO 가 admission 시점에 채우는 default 필드 (conversionStrategy 등) 가
+  # selfHeal 과 충돌해 무한 sync 루프를 일으키므로 무시한다.
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jsonPointers:
+        - /spec/data/0/remoteRef/conversionStrategy
+        - /spec/data/0/remoteRef/decodingStrategy
+        - /spec/data/0/remoteRef/metadataPolicy
   syncPolicy:
     automated:
       prune: true

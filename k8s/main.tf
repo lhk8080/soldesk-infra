@@ -19,6 +19,10 @@ data "aws_iam_role" "eso" {
   name = "${local.name_prefix}-eso-role"
 }
 
+data "aws_iam_role" "cluster_autoscaler" {
+  name = "${local.name_prefix}-cluster-autoscaler-role"
+}
+
 provider "helm" {
   kubernetes {
     host                   = data.aws_eks_cluster.main.endpoint
@@ -82,6 +86,17 @@ module "eso" {
   source = "../modules/kubernetes/addons/eso"
 
   role_arn = data.aws_iam_role.eso.arn
+
+  depends_on = [module.alb_controller]
+}
+
+module "cluster_autoscaler" {
+  source = "../modules/kubernetes/addons/cluster_autoscaler"
+
+  cluster_name  = var.cluster_name
+  aws_region    = var.aws_region
+  role_arn      = data.aws_iam_role.cluster_autoscaler.arn
+  chart_version = var.cluster_autoscaler_version
 
   depends_on = [module.alb_controller]
 }
