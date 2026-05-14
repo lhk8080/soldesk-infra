@@ -4,11 +4,11 @@ Ticketing 서비스의 **인프라 정의 repo** (Terraform). 팀원이 자기 A
 
 ## 3-repo 구조
 
-| repo | 역할 |
-|---|---|
-| **soldesk-infra** (이 repo) | Terraform — EKS, RDS, ElastiCache, S3, CloudFront, API Gateway, Cognito, WAF, ArgoCD/ALB/KEDA helm install |
-| [soldesk-k8s](https://github.com/lhk8080/soldesk-k8s) | Helm chart + ArgoCD Application 설정 (**계정 중립, 읽기전용 공용 repo — fork 불필요**) |
-| [soldesk-app](https://github.com/lhk8080/soldesk-app) | 애플리케이션 소스 (ticketing-was, worker-svc, frontend) + DB 스키마 + seed.sh |
+| 레포지토리명 | 책임 범위 | 링크 |
+|---|---|---|
+| **soldesk-infra** (이 repo) | • 테라폼 코드 전반<br>• AWS 리소스 + IAM<br>• 클러스터 운용에 필요한 애드온 (helm provider) | — |
+| soldesk-k8s | • ArgoCD에 의해 동기화되는 대상<br>• monitoring, service app | [github](https://github.com/lhk8080/soldesk-k8s) |
+| soldesk-app | • 애플리케이션 소스 코드<br>• 이미지 빌드 & 레지스트리 푸시 지점 | [github](https://github.com/lhk8080/soldesk-app) |
 
 ## 현재 운영 단계: 멀티 계정 개발
 
